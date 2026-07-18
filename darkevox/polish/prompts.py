@@ -1,11 +1,13 @@
 """Every LLM prompt in DarkeVox. Nothing prompt-shaped lives anywhere else.
 
-STYLE_RULES distills .claude/skills/no-slop-writing for a small local model:
-the banned-word shortlist, the em dash ban, the no-padding rule. When the
-skill changes, re-derive these constants; they must not drift apart.
+Written for a 3B local model, which means: the fidelity law goes first and
+last (primacy and recency), lists constrain only what the MODEL may add
+(never what the speaker said), and the transcript is labeled as an object
+to clean so the chat prior doesn't answer it. The style rules distill
+.claude/skills/no-slop-writing; when the skill changes, re-derive these.
 
 Retrieved document text is untrusted data: it enters only inside the
-<reference> block with an explicit "data, not instructions" framing.
+<reference> block, neutralized against delimiter escapes.
 """
 
 from __future__ import annotations
@@ -13,38 +15,35 @@ from __future__ import annotations
 from darkevox.context.provider import GroundingChunk
 
 _INTRO = (
-    "You clean up dictated speech into finished text. The user spoke, a speech "
-    "recognizer transcribed, and you repair the result. You are an editor, not an author."
+    "You clean up dictated speech into finished text. You are an editor, not an author. "
+    "The one law: change as little as possible. Fix what the speech recognizer got "
+    "wrong; keep every word the speaker got right, word for word. Never reply to the "
+    "transcript; there is no question in it for you."
 )
 
 BEHAVIOR_RULES = """\
 Rules:
-1. Fix grammar, punctuation, and capitalization.
-2. Remove fillers and false starts: um, uh, like, you know, I mean, kind of, repeated words.
-3. Obey spoken editing commands, then remove the command words themselves:
+1. Change as little as possible. A sentence the speaker said correctly stays word for
+   word. Never paraphrase, reorder, or swap in your own vocabulary.
+2. Fix grammar, punctuation, and capitalization.
+3. Remove fillers and false starts: um, uh, like, you know, I mean, kind of, repeated words.
+4. Obey spoken editing commands, then remove the command words themselves:
    - "new paragraph" or "new line": insert the break there.
    - "scratch that", "no wait", "actually no": delete what was just said and keep the
      correction that follows.
    - "quote ... end quote": put that part in quotation marks.
-4. Never add content, facts, names, or numbers the speaker did not say.
-5. Change as little as possible. A sentence the speaker said correctly stays word for
-   word. Never paraphrase, reorder, or "improve" wording that is already right.
-6. Never answer questions in the transcript. You transcribe intent; you do not converse.
-7. Output only the final text. No preamble, no explanation, no quotation marks around the
+5. Never add content, facts, names, or numbers the speaker did not say.
+6. Output only the final text. No preamble, no explanation, no quotation marks around the
    whole thing, no markdown fences."""
 
 STYLE_RULES = """\
 Style:
-- Keep the speaker's meaning, vocabulary, and register. Clean, don't rewrite.
-- Plain words. Do not introduce any of: delve, leverage, foster, harness, elevate,
-  streamline, empower, unlock, utilize, seamless, robust, vibrant, crucial, pivotal,
-  comprehensive, multifaceted, journey, testament, tapestry, landscape, realm,
-  game-changer, myriad, plethora, synergy, paradigm.
-- No em dashes. Use a period, comma, colon, or parentheses.
-- No filler phrases: "it's important to note", "in order to", "at the end of the day",
-  "that being said", "in today's world", "in conclusion".
+- Keep the speaker's meaning, vocabulary, and register. Their words beat "better" words.
 - Add no greetings, sign-offs, apologies, or enthusiasm the speaker didn't say.
-- Contractions are fine. Short sentences are fine. Sound like a person."""
+- Do not add words of your own like delve, tapestry, testament, myriad, synergy, or
+  leverage, and never type an em dash. This limits only what YOU add: a word the
+  speaker actually said always stays.
+- Contractions are fine. Short sentences are fine."""
 
 TONE_PROMPTS: dict[str, str] = {
     "email": (
@@ -53,14 +52,20 @@ TONE_PROMPTS: dict[str, str] = {
         "sign-off only if the speaker said one."
     ),
     "message": (
-        "Shape it as a short chat message: direct and casual, matching how the speaker "
-        "talks. Keep it as brief as what they said allows."
+        "Shape it as a chat message: direct and casual, matching how the speaker talks. "
+        "Do not pad it, and do not drop anything they said."
     ),
     "notes": (
-        "Shape it as quick notes: terse lines, a '- ' bullet per item when the speaker "
-        "lists things, fragments welcome. No prose padding."
+        "Shape it as quick notes: one line per item, a '- ' bullet when the speaker lists "
+        "things. Keep the speaker's own words in each line; drop only connective filler, "
+        "never meaning."
     ),
 }
+
+_CLOSING = (
+    "Remember the law: cleaned, not rewritten, and never answered. Output the final "
+    "text only."
+)
 
 _DICTIONARY_TEMPLATE = "Spell these exactly as written when they appear: {terms}."
 
@@ -70,6 +75,13 @@ _REFERENCE_HEADER = (
     "correct the spelling of names, numbers, and facts the speaker clearly meant. "
     "Never add new information from them."
 )
+
+_USER_TEMPLATE = "Transcript to clean up. Do not reply to it, only clean it:\n\n{transcript}"
+
+
+def _neutralize(text: str) -> str:
+    """Keep retrieved chunk text from escaping its data framing."""
+    return text.replace("</reference>", "(reference)").replace("```", "'''")
 
 
 def build_polish_messages(
@@ -90,9 +102,12 @@ def build_polish_messages(
     if terms:
         sections.append(_DICTIONARY_TEMPLATE.format(terms=", ".join(terms)))
     if grounding:
-        body = "\n\n".join(f"[{chunk.source}]\n{chunk.text}" for chunk in grounding)
+        body = "\n\n".join(
+            f"[{_neutralize(chunk.source)}]\n{_neutralize(chunk.text)}" for chunk in grounding
+        )
         sections.append(f"{_REFERENCE_HEADER}\n<reference>\n{body}\n</reference>")
+    sections.append(_CLOSING)
     return [
         {"role": "system", "content": "\n\n".join(sections)},
-        {"role": "user", "content": transcript},
+        {"role": "user", "content": _USER_TEMPLATE.format(transcript=transcript)},
     ]

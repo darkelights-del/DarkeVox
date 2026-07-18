@@ -1,6 +1,10 @@
-"""Energy-based pause detection so long toggle dictations stream through STT
-in segments instead of one blob. Whisper's own VAD still runs per segment;
-this only decides where to cut.
+"""Pause detection for live dictation: cut where the speaker actually pauses.
+
+Two lessons from the field are baked in. Silence is judged RELATIVE to the
+loudest audio heard this session (a fixed absolute threshold misfires on
+quiet laptop mics: everything reads as silence and cuts land mid-word).
+And segments stay LONG: Whisper transcribes whole utterances far better
+than context-free fragments, so cuts only happen at real sentence pauses.
 """
 
 from __future__ import annotations
@@ -14,10 +18,15 @@ from darkevox.audio.capture import SAMPLE_RATE
 
 @dataclass
 class SegmenterConfig:
-    silence_rms: float = 0.010  # ~-40 dBFS; below this a block counts as silence
-    # Tuned for live feedback: text should appear at every natural breath.
-    min_speech_s: float = 2.5  # never cut segments shorter than this
-    min_silence_s: float = 0.7  # a pause this long marks a cut point
+    # Silence = block rms below max(floor, ratio * loudest block this session).
+    # The relative term adapts to mic gain; the floor keeps digital silence
+    # from counting as speech before anyone talks.
+    silence_floor: float = 0.0015  # ~ -56 dBFS
+    silence_ratio: float = 0.15
+    # Whisper is strongest with whole utterances (its window is 30 s);
+    # frequent cuts transcribe fragments and mangle words at the seams.
+    min_speech_s: float = 8.0
+    min_silence_s: float = 0.9
 
 
 class PauseSegmenter:
@@ -29,10 +38,14 @@ class PauseSegmenter:
         self._blocks: list[np.ndarray] = []
         self._buffered = 0
         self._silence_run = 0
+        self._peak_rms = 0.0
 
     @property
     def buffered_s(self) -> float:
         return self._buffered / self._rate
+
+    def _threshold(self) -> float:
+        return max(self._cfg.silence_floor, self._cfg.silence_ratio * self._peak_rms)
 
     def feed(self, block: np.ndarray) -> np.ndarray | None:
         """Returns a segment ready for STT, or None while one is still building."""
@@ -42,7 +55,8 @@ class PauseSegmenter:
         self._blocks.append(block)
         self._buffered += block.size
         rms = float(np.sqrt(np.mean(np.square(block))))
-        if rms < self._cfg.silence_rms:
+        self._peak_rms = max(self._peak_rms, rms)
+        if rms < self._threshold():
             self._silence_run += block.size
         else:
             self._silence_run = 0
@@ -55,7 +69,11 @@ class PauseSegmenter:
         return None
 
     def flush(self) -> np.ndarray | None:
-        """Return whatever is buffered (end of dictation), or None if empty."""
+        """Return whatever is buffered (end of dictation), or None if empty.
+
+        The session's peak-loudness estimate survives the flush on purpose:
+        the mic's level doesn't change between segments of one dictation.
+        """
         if not self._blocks:
             return None
         segment = np.concatenate(self._blocks)

@@ -162,9 +162,9 @@ def test_toggle_flow_streams_segments_and_joins(qapp: QApplication) -> None:
     cfg = Config()
     state = AppState(tone="verbatim")
     injector = Injector(clipboard, FakeKeys(), restore_delay_ms=0, sleep=lambda _s: None)
-    # Drain feed: 6 s of speech, then 1.2 s of silence -> the segmenter cuts
+    # Drain feed: 9 s of speech, then 1.2 s of silence -> the segmenter cuts
     # segment one mid-recording; the 1 s tail at stop becomes segment two.
-    speech = np.full(6 * 16000, 0.2, dtype=np.float32)
+    speech = np.full(9 * 16000, 0.2, dtype=np.float32)
     silence = np.zeros(int(1.2 * 16000), dtype=np.float32)
     tail = np.full(16000, 0.2, dtype=np.float32)
     capture = FakeCapture(tail, drains=[speech, silence])

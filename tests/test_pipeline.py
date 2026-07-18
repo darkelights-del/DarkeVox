@@ -116,3 +116,13 @@ def test_sanitize_strips_fences_and_quotes() -> None:
     assert sanitize("Hello there.") == "Hello there."
     assert sanitize('She said "hi" and left.') == 'She said "hi" and left.'
     assert sanitize("  padded  ") == "padded"
+
+
+def test_sanitize_never_eats_content() -> None:
+    # A one-word first line is a note title, not a language tag.
+    assert sanitize("```\nGroceries\n- milk\n- eggs\n```") == "Groceries\n- milk\n- eggs"
+    # Wrapper quotes strip when inner quotes stay balanced without them...
+    assert sanitize('"She said "hi" and left."') == 'She said "hi" and left.'
+    assert sanitize("“Hello there.”") == "Hello there."
+    # ...but an unbalanced inner quote means the wrapper might be content.
+    assert sanitize("'don't'") == "'don't'"

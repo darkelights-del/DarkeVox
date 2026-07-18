@@ -19,7 +19,9 @@ def _silence(seconds: float) -> np.ndarray:
 
 
 def _segmenter() -> PauseSegmenter:
-    cfg = SegmenterConfig(silence_rms=0.01, min_speech_s=5.0, min_silence_s=1.0)
+    cfg = SegmenterConfig(
+        silence_floor=0.01, silence_ratio=0.0, min_speech_s=5.0, min_silence_s=1.0
+    )
     return PauseSegmenter(cfg, sample_rate=RATE)
 
 
@@ -61,3 +63,14 @@ def test_silence_run_resets_on_new_speech() -> None:
     assert seg.feed(_silence(0.7)) is None  # silence run restarted
     result = seg.feed(_silence(0.4))
     assert result is not None  # now the pause completes
+
+
+def test_adaptive_threshold_hears_a_quiet_mic() -> None:
+    """A quiet laptop mic (rms ~0.004, below any sane absolute threshold)
+    must still count as speech and cut at its pauses."""
+    seg = PauseSegmenter(sample_rate=RATE)  # default adaptive config
+    t = np.arange(int(9.0 * RATE)) / RATE
+    quiet_speech = (0.006 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+    assert seg.feed(quiet_speech) is None
+    result = seg.feed(np.zeros(int(1.0 * RATE), dtype=np.float32))
+    assert result is not None  # the pause was detected relative to session loudness

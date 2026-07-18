@@ -29,19 +29,36 @@ class PolishResult:
     note: str = ""  # user-visible when fell_back
 
 
+_LANG_TAGS = {"text", "txt", "plaintext", "markdown", "md", "python", "json", "bash", "sh"}
+_QUOTE_PAIRS = (('"', '"'), ("'", "'"), ("“", "”"), ("‘", "’"))  # noqa: RUF001
+
+
 def sanitize(raw: str) -> str:
     """Strip wrapper artifacts models add despite instructions: code fences
-    around the whole reply, or one pair of quotes around the whole reply."""
+    around the whole reply, or one pair of quotes around the whole reply.
+
+    Conservative by design: a first line is dropped only when it is a known
+    language tag (a one-word note title is content, not a tag), and wrapper
+    quotes are stripped only when the inner quotes stay balanced without them.
+    """
     text = raw.strip()
-    if text.startswith("```") and text.endswith("```"):
+    if text.startswith("```") and text.endswith("```") and len(text) > 6:
         text = text[3:-3].strip()
         first_line, _, rest = text.partition("\n")
-        if first_line and " " not in first_line and rest:
-            text = rest.strip()  # fence carried a language tag
-    if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
-        inner = text[1:-1]
-        if text[0] not in inner:
-            text = inner.strip()
+        if rest and first_line.lower() in _LANG_TAGS:
+            text = rest.strip()
+    if len(text) >= 2:
+        for opener, closer in _QUOTE_PAIRS:
+            if text[0] != opener or text[-1] != closer:
+                continue
+            inner = text[1:-1]
+            if opener == closer:
+                balanced = inner.count(opener) % 2 == 0
+            else:
+                balanced = inner.count(opener) == inner.count(closer)
+            if balanced:
+                text = inner.strip()
+            break
     return text
 
 

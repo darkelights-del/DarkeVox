@@ -122,6 +122,10 @@ class MicrophoneCapture:
         except (sd.PortAudioError, ValueError) as exc:
             stream.close()  # opened but unstartable; don't leak the PortAudio handle
             raise CaptureError(f"microphone unavailable: {exc}") from exc
+        actual_rate = getattr(stream, "samplerate", SAMPLE_RATE)
+        if actual_rate and abs(actual_rate - SAMPLE_RATE) > 1:
+            # PortAudio may open at a hardware rate; whisper assumes 16 kHz.
+            log.warning("mic opened at %s Hz (requested %s)", actual_rate, SAMPLE_RATE)
         self._stream = stream
 
     def _on_audio(self, indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
