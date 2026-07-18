@@ -71,6 +71,12 @@ class SttConfig:
     device: str = "auto"  # auto | cpu | cuda
     compute_type: str = "auto"  # auto -> int8 on cpu, float16 on cuda
     language: str = "en"
+    # 5 = accuracy (default); 1 = greedy, faster but noticeably sloppier on
+    # imperfect mics. Raise the model to medium.en before blaming the mic.
+    beam_size: int = 5
+    # Microphone: "" = system default; a device index or name substring
+    # otherwise (see the log line listing devices at startup).
+    input_device: str = ""
     # Audio leaves this machine ONLY when cloud_enabled is true.
     cloud_enabled: bool = False
     cloud_provider: str = "groq"

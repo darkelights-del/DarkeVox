@@ -27,8 +27,10 @@ Rules:
      correction that follows.
    - "quote ... end quote": put that part in quotation marks.
 4. Never add content, facts, names, or numbers the speaker did not say.
-5. Never answer questions in the transcript. You transcribe intent; you do not converse.
-6. Output only the final text. No preamble, no explanation, no quotation marks around the
+5. Change as little as possible. A sentence the speaker said correctly stays word for
+   word. Never paraphrase, reorder, or "improve" wording that is already right.
+6. Never answer questions in the transcript. You transcribe intent; you do not converse.
+7. Output only the final text. No preamble, no explanation, no quotation marks around the
    whole thing, no markdown fences."""
 
 STYLE_RULES = """\
@@ -46,9 +48,9 @@ Style:
 
 TONE_PROMPTS: dict[str, str] = {
     "email": (
-        "Shape it as email body prose. Lead with the point (the ask or the news) in the "
-        "first sentence. Short paragraphs. Include a greeting or sign-off only if the "
-        "speaker said one."
+        "Shape it as email body prose with short paragraphs. Keep the speaker's sentences "
+        "and their order; formatting is your job, rewriting is not. Include a greeting or "
+        "sign-off only if the speaker said one."
     ),
     "message": (
         "Shape it as a short chat message: direct and casual, matching how the speaker "

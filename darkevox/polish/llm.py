@@ -57,7 +57,9 @@ class OllamaClient:
             "messages": messages,
             "stream": False,
             "keep_alive": self._keep_alive,
-            "options": {"temperature": 0.2},
+            # 0.0: cleanup is deterministic work; sampling heat is where small
+            # models start "improving" what the speaker actually said.
+            "options": {"temperature": 0.0},
         }
         last_connect_error: Exception | None = None
         for _attempt in range(2):  # one retry, connection errors only
@@ -100,7 +102,7 @@ class OpenRouterClient:
             response = self._client.chat.completions.create(
                 model=self._model,
                 messages=messages,
-                temperature=0.2,
+                temperature=0.0,
                 timeout=timeout_s,
             )
             content = response.choices[0].message.content

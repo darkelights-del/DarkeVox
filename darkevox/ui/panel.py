@@ -56,14 +56,14 @@ def _caption(text: str) -> QLabel:
 class _MicControl(QWidget):
     """Shared mouse logic for the mic: click, hold, drag."""
 
-    def __init__(self, controller: Any, draggable: bool) -> None:
+    def __init__(self, controller: Any, draggable: bool, on_click: Any = None) -> None:
         super().__init__()
         self._controller = controller
         self._draggable = draggable
         self.recording = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._interpreter = PressHoldInterpreter(
-            on_click=controller.panel_click,
+            on_click=on_click or controller.panel_click,
             on_hold_start=controller.panel_press,
             on_hold_end=controller.panel_release,
         )
@@ -108,15 +108,25 @@ class _MicControl(QWidget):
 
 
 class _Pill(_MicControl):
-    """Collapsed state: the whole widget is the mic. Double-click expands."""
+    """Collapsed state: the whole widget is the mic. Double-click expands.
+
+    A single click commits only after the double-click window closes, so
+    expanding the panel never toggles a session by accident.
+    """
 
     def __init__(self, controller: Any, on_expand: Any) -> None:
-        super().__init__(controller, draggable=True)
+        self._click_timer = QTimer()
+        self._click_timer.setSingleShot(True)
+        self._click_timer.setInterval(QGuiApplication.styleHints().mouseDoubleClickInterval())
+        super().__init__(controller, draggable=True, on_click=self._click_timer.start)
+        self._click_timer.setParent(self)
+        self._click_timer.timeout.connect(controller.panel_click)
         self._on_expand = on_expand
         self.setFixedSize(_PILL, _PILL)
         self.setToolTip("Click: start/stop. Hold: push to talk. Double-click: open.")
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # Qt override
+        self._click_timer.stop()
         self._interpreter.cancel()
         self._on_expand()
 

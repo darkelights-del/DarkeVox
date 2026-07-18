@@ -49,11 +49,13 @@ class SttEngine:
         device: str = "auto",
         compute_type: str = "auto",
         language: str = "en",
+        beam_size: int = 5,
     ) -> None:
         self._model_name = model
         self._models_dir = models_dir
         self._device, self._compute_type = resolve_device(device, compute_type)
         self._language = language
+        self._beam_size = max(1, beam_size)
         self._model: Any = None
 
     @property
@@ -93,14 +95,14 @@ class SttEngine:
             raise RuntimeError("SttEngine.load() must run before transcribe()")
         audio = audio.reshape(-1).astype(np.float32, copy=False)
         start = time.perf_counter()
-        # beam_size=1 (greedy) and no cross-segment conditioning: measurably
-        # faster on CPU and less prone to repetition loops in dictation.
+        # Beam search buys real accuracy on imperfect mics; cross-segment
+        # conditioning stays off (repetition loops in dictation).
         segments, info = self._model.transcribe(
             audio,
             language=self._language or None,
             vad_filter=True,
             initial_prompt=initial_prompt,
-            beam_size=1,
+            beam_size=self._beam_size,
             condition_on_previous_text=False,
         )
         text = " ".join(segment.text.strip() for segment in segments).strip()

@@ -24,7 +24,7 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from darkevox.audio.capture import CaptureError, MicrophoneCapture
+from darkevox.audio.capture import SAMPLE_RATE, CaptureError, MicrophoneCapture
 from darkevox.audio.segmenter import PauseSegmenter
 from darkevox.config import Config
 from darkevox.inject.injector import Injector
@@ -33,6 +33,8 @@ from darkevox.state import AppState
 from darkevox.stt.engine import SttEngine, build_initial_prompt
 
 log = logging.getLogger(__name__)
+
+_MIN_UTTERANCE_S = 0.25  # shorter than this is a key tap, not speech
 
 
 @dataclass
@@ -48,7 +50,7 @@ Polisher = Callable[[str, str], PolishOutcome]  # (text, tone) -> outcome
 
 class DictationController(QObject):
     state_changed = Signal(str, str)  # (state, label) for HUD and tray
-    partial_transcript = Signal(str)  # accumulated raw text during a live session
+    partial_transcript = Signal(str, str)  # (accumulated raw text, sink it belongs to)
     session_finished = Signal(str)  # panel sessions: full raw transcript at stop
     panel_polish_ready = Signal(str, str, bool)  # (text, tone, fell_back)
     grounded_changed = Signal(bool)  # last polish used retrieved context
@@ -82,7 +84,9 @@ class DictationController(QObject):
         self._segmenter: PauseSegmenter | None = None
         self._session_kind: str | None = None  # hold | toggle
         self._session_sink: str = "inject"
+        self._session_samples = 0  # main thread; total audio captured this session
         self._segments: list[str] = []  # touched only by the worker thread
+        self._session_stt_ms = 0.0  # worker thread; STT time accumulated this session
         self._polisher: Polisher | None = None
         self._jobs: queue.Queue[tuple[str, Any]] = queue.Queue()
         self._worker = threading.Thread(target=self._work, daemon=True, name="darkevox-worker")
@@ -181,6 +185,7 @@ class DictationController(QObject):
         self._segmenter = PauseSegmenter()
         self._session_kind = kind
         self._session_sink = sink
+        self._session_samples = 0
         self._drain_timer.start()
         self._set_recording(True)
         if sink == "inject":
@@ -198,12 +203,22 @@ class DictationController(QObject):
         if capture is None or segmenter is None:
             return
         tail = capture.stop()
+        self._session_samples += tail.size
+        if self._session_samples < _MIN_UTTERANCE_S * SAMPLE_RATE:
+            # A key tap, not speech: transcribing it wastes an STT call and a
+            # short blip can hallucinate a phantom word into the document.
+            segmenter.flush()
+            if sink == "panel":
+                self.session_finished.emit("")
+            else:
+                self.state_changed.emit("done", "no speech")
+            return
         segment = segmenter.feed(tail) if tail.size else None
         if segment is not None:
-            self._jobs.put(("segment", segment))
+            self._jobs.put(("segment", (segment, sink)))
         remainder = segmenter.flush()
         if remainder is not None:
-            self._jobs.put(("segment", remainder))
+            self._jobs.put(("segment", (remainder, sink)))
         if sink == "inject":
             self.state_changed.emit("transcribing", "transcribing")
         self._jobs.put(("finalize", sink))
@@ -214,9 +229,12 @@ class DictationController(QObject):
         block = self._capture.drain()
         if block.size == 0:
             return
+        self._session_samples += block.size
         segment = self._segmenter.feed(block)
         if segment is not None:
-            self._jobs.put(("segment", segment))
+            # The sink rides inside the job: reading self._session_sink later
+            # (worker or queued slot) races a newer session changing it.
+            self._jobs.put(("segment", (segment, self._session_sink)))
 
     def _set_recording(self, recording: bool) -> None:
         self._state.recording = recording
@@ -246,18 +264,23 @@ class DictationController(QObject):
                 log.exception("stt model load failed")
                 self.error.emit("Speech model failed to load. Check the log.")
         elif kind == "segment":
-            result = self._engine.transcribe(payload, self._initial_prompt())
+            audio, sink = payload
+            result = self._engine.transcribe(audio, self._initial_prompt())
             log.info("segment stt=%.0fms audio=%.1fs", result.elapsed_ms, result.audio_s)
+            self._session_stt_ms += result.elapsed_ms
             if result.text:
                 self._segments.append(result.text)
-                self.partial_transcript.emit(" ".join(self._segments))
+                self.partial_transcript.emit(" ".join(self._segments), sink)
         elif kind == "finalize":
             text = " ".join(part for part in self._segments if part).strip()
+            stt_ms = self._session_stt_ms
             self._segments.clear()
+            self._session_stt_ms = 0.0
             if payload == "panel":
+                log.info("panel session stt=%.0fms", stt_ms)
                 self.session_finished.emit(text)
             else:
-                self._finish(text, {})
+                self._finish(text, {"stt": stt_ms})
         elif kind == "panel_polish":
             self._panel_polish(*payload)
         elif kind == "panel_inject":

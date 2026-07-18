@@ -187,8 +187,8 @@ def test_panel_session_streams_and_delivers_raw(qapp: QApplication) -> None:
     engine = FakeEngine("hello there")
     clipboard = InMemoryClipboard()
     controller, _state = _controller(qapp, engine, clipboard)
-    partials: list[str] = []
-    controller.partial_transcript.connect(partials.append)
+    partials: list[tuple[str, str]] = []
+    controller.partial_transcript.connect(lambda text, sink: partials.append((text, sink)))
     finished: list[str] = []
     controller.session_finished.connect(finished.append)
 
@@ -198,7 +198,7 @@ def test_panel_session_streams_and_delivers_raw(qapp: QApplication) -> None:
     controller.panel_click()
     assert _pump_until(qapp, lambda: bool(finished))
     assert finished == ["hello there"]
-    assert partials == ["hello there"]  # the tail segment streamed live
+    assert partials == [("hello there", "panel")]  # streamed live, sink attached
     assert clipboard.get_text() is None  # panel sessions never auto-inject
 
 

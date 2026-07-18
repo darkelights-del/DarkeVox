@@ -22,6 +22,16 @@ class CaptureError(RuntimeError):
     """Microphone unavailable or the audio backend failed."""
 
 
+def parse_device(value: str) -> int | str | None:
+    """Config [stt] input_device: '' = default, digits = index, else name match."""
+    value = value.strip()
+    if not value:
+        return None
+    if value.isdigit():
+        return int(value)
+    return value
+
+
 class RingBuffer:
     """Fixed-capacity FIFO of float32 samples, drop-oldest on overflow."""
 

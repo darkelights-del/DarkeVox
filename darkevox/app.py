@@ -203,6 +203,7 @@ def main() -> int:
         device=cfg.stt.device,
         compute_type=cfg.stt.compute_type,
         language=cfg.stt.language,
+        beam_size=cfg.stt.beam_size,
     )
     injector = Injector(
         system_clipboard(),
@@ -210,7 +211,13 @@ def main() -> int:
         method=cfg.inject.method,
         restore_delay_ms=cfg.inject.restore_delay_ms,
     )
-    controller = DictationController(cfg, state, engine, injector)
+    from darkevox.audio.capture import MicrophoneCapture, parse_device
+
+    mic_device = parse_device(cfg.stt.input_device)
+    controller = DictationController(
+        cfg, state, engine, injector,
+        capture_factory=lambda: MicrophoneCapture(device=mic_device),
+    )
     controller.set_polisher(_build_polisher(cfg))
     hud = Hud()
 
@@ -237,11 +244,14 @@ def main() -> int:
     panel = Panel(controller, tracker, default_tone=state.tone)
     controller.set_focus_restorer(tracker.restore)
     controller.partial_transcript.connect(
-        lambda text: panel.set_partial(text) if controller.session_sink == "panel" else None
+        lambda text, sink: panel.set_partial(text) if sink == "panel" else None
     )
     controller.session_finished.connect(panel.on_session_finished)
     controller.panel_polish_ready.connect(panel.on_polish_ready)
-    controller.recording_changed.connect(panel.set_recording)
+    # Same-thread direct delivery: session_sink is still this session's value.
+    controller.recording_changed.connect(
+        lambda rec: panel.set_recording(rec and controller.session_sink == "panel")
+    )
     tray.panel_requested.connect(panel.show_expanded)
     if cfg.ui.panel_x >= 0 and cfg.ui.panel_y >= 0:
         panel.move(cfg.ui.panel_x, cfg.ui.panel_y)
