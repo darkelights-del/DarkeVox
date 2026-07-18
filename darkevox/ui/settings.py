@@ -1,7 +1,9 @@
 """Settings dialog: hotkeys, speech model, polish backend, tone, injection.
 
-Edits a deep copy; the caller receives it via the saved signal only after
-validation passes. API keys go straight to the keyring, never into the TOML.
+Layout follows darkevox-ui-style: each section is a cream-50 card (12 radius,
+16 padding), one column, labels above controls. Edits happen on a deep copy;
+the caller receives it via the saved signal only after validation passes.
+API keys go straight to the keyring, never into the TOML.
 """
 
 from __future__ import annotations
@@ -13,12 +15,13 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDoubleSpinBox,
-    QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
     QVBoxLayout,
+    QWidget,
 )
 
 from darkevox.audio.hotkeys import parse_combo
@@ -36,6 +39,29 @@ def _caption(text: str) -> QLabel:
     label.setProperty("role", "caption")
     label.setWordWrap(True)
     return label
+
+
+def _card() -> tuple[QFrame, QVBoxLayout]:
+    frame = QFrame()
+    frame.setProperty("role", "card")
+    box = QVBoxLayout(frame)
+    box.setContentsMargins(16, 16, 16, 16)
+    box.setSpacing(8)
+    return frame, box
+
+
+def _field(box: QVBoxLayout, label_text: str, widget: QWidget) -> None:
+    label = QLabel(label_text)
+    label.setProperty("role", "caption")
+    box.addWidget(label)
+    box.addWidget(widget)
+
+
+def _mark_invalid(edit: QLineEdit, invalid: bool) -> None:
+    edit.setProperty("invalid", invalid)
+    style = edit.style()
+    style.unpolish(edit)
+    style.polish(edit)
 
 
 class SettingsDialog(QDialog):
@@ -57,79 +83,79 @@ class SettingsDialog(QDialog):
 
     def _build_hotkeys(self, layout: QVBoxLayout) -> None:
         layout.addWidget(_section("Hotkeys"))
-        form = QFormLayout()
+        card, box = _card()
         self._hold = QLineEdit(self._cfg.hotkeys.hold)
         self._toggle = QLineEdit(self._cfg.hotkeys.toggle)
-        form.addRow("Hold to talk", self._hold)
-        form.addRow("Toggle dictation", self._toggle)
-        layout.addLayout(form)
+        _field(box, "Hold to talk", self._hold)
+        _field(box, "Toggle dictation", self._toggle)
         self._hotkey_error = _caption("")
         self._hotkey_error.setProperty("role", "error")
         self._hotkey_error.hide()
-        layout.addWidget(self._hotkey_error)
+        box.addWidget(self._hotkey_error)
+        layout.addWidget(card)
 
     def _build_speech(self, layout: QVBoxLayout) -> None:
         layout.addWidget(_section("Speech"))
-        form = QFormLayout()
+        card, box = _card()
         self._stt_model = QComboBox()
         self._stt_model.addItems(STT_MODELS)
         self._stt_model.setCurrentText(self._cfg.stt.model)
-        form.addRow("Model", self._stt_model)
-        layout.addLayout(form)
-        layout.addWidget(
+        _field(box, "Model", self._stt_model)
+        box.addWidget(
             _caption(
                 "small.en is the accuracy sweet spot on CPU. large-v3-turbo is worth it "
                 "only with an NVIDIA GPU. Model changes apply after a restart."
             )
         )
+        layout.addWidget(card)
 
     def _build_polish(self, layout: QVBoxLayout) -> None:
         layout.addWidget(_section("Polish"))
-        form = QFormLayout()
+        card, box = _card()
         self._backend = QComboBox()
         self._backend.addItems(BACKENDS)
         self._backend.setCurrentText(self._cfg.llm.backend)
-        form.addRow("Backend", self._backend)
+        _field(box, "Backend", self._backend)
         self._ollama_url = QLineEdit(self._cfg.llm.ollama_url)
-        form.addRow("Ollama URL", self._ollama_url)
+        _field(box, "Ollama URL", self._ollama_url)
         self._polish_model = QLineEdit(self._cfg.llm.polish_model)
-        form.addRow("Ollama model", self._polish_model)
+        _field(box, "Ollama model", self._polish_model)
         self._openrouter_model = QLineEdit(self._cfg.llm.openrouter_model)
         self._openrouter_model.setPlaceholderText("pick from openrouter.ai/models (free filter)")
-        form.addRow("OpenRouter model", self._openrouter_model)
+        _field(box, "OpenRouter model", self._openrouter_model)
         self._openrouter_key = QLineEdit()
         self._openrouter_key.setEchoMode(QLineEdit.EchoMode.Password)
         self._openrouter_key.setPlaceholderText("unchanged if left empty")
-        form.addRow("OpenRouter key", self._openrouter_key)
+        _field(box, "OpenRouter key", self._openrouter_key)
         self._tone = QComboBox()
         self._tone.addItems(TONES)
         self._tone.setCurrentText(self._cfg.polish.default_tone)
-        form.addRow("Default tone", self._tone)
+        _field(box, "Default tone", self._tone)
         self._timeout = QDoubleSpinBox()
         self._timeout.setRange(3.0, 30.0)
         self._timeout.setSuffix(" s")
         self._timeout.setValue(self._cfg.llm.timeout_s)
-        form.addRow("Polish timeout", self._timeout)
-        layout.addLayout(form)
-        layout.addWidget(
+        _field(box, "Polish timeout", self._timeout)
+        box.addWidget(
             _caption(
                 "Ollama runs on this machine and costs nothing. OpenRouter's free model "
                 "list rotates; check it before relying on a name. Keys are stored in "
                 "Windows Credential Manager, not in the config file."
             )
         )
+        layout.addWidget(card)
 
     def _build_injection(self, layout: QVBoxLayout) -> None:
         layout.addWidget(_section("Injection"))
-        form = QFormLayout()
+        card, box = _card()
         self._method = QComboBox()
         self._method.addItems(INJECT_METHODS)
         self._method.setCurrentText(self._cfg.inject.method)
-        form.addRow("Method", self._method)
-        layout.addLayout(form)
-        layout.addWidget(
+        _field(box, "Method", self._method)
+        box.addWidget(
             _caption("paste suits almost everything; type is for apps that block Ctrl+V.")
         )
+        layout.addWidget(card)
 
     def _build_buttons(self, layout: QVBoxLayout) -> None:
         row = QHBoxLayout()
@@ -144,13 +170,19 @@ class SettingsDialog(QDialog):
         layout.addLayout(row)
 
     def _save(self) -> None:
-        try:
-            parse_combo(self._hold.text())
-            parse_combo(self._toggle.text())
-        except ValueError:
+        valid = True
+        for edit in (self._hold, self._toggle):
+            try:
+                parse_combo(edit.text())
+                _mark_invalid(edit, False)
+            except ValueError:
+                _mark_invalid(edit, True)
+                valid = False
+        if not valid:
             self._hotkey_error.setText("Use a combo like ctrl+alt+space.")
             self._hotkey_error.show()
             return
+        self._hotkey_error.hide()
         cfg = self._cfg
         cfg.hotkeys.hold = self._hold.text().strip()
         cfg.hotkeys.toggle = self._toggle.text().strip()

@@ -12,7 +12,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-SUPPORTED_MODELS = ("base.en", "small.en", "large-v3-turbo")
+# The supported model list lives in config.STT_MODELS; nothing here duplicates it.
 
 # Rough repo sizes used only to scale the progress bar.
 APPROX_SIZE_MB = {

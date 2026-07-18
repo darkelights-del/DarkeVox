@@ -26,8 +26,9 @@ from darkevox.stt.engine import TranscriptionResult
 
 
 class FakeEngine:
-    def __init__(self, text: str = "hello world") -> None:
+    def __init__(self, text: str = "hello world", texts: list[str] | None = None) -> None:
         self.text = text
+        self.texts = list(texts or [])
         self.loaded = False
         self.prompts: list[str | None] = []
 
@@ -36,17 +37,21 @@ class FakeEngine:
 
     def transcribe(self, audio: np.ndarray, initial_prompt: str | None = None):
         self.prompts.append(initial_prompt)
-        return TranscriptionResult(self.text, "en", audio.size / 16000, 5.0)
+        text = self.texts.pop(0) if self.texts else self.text
+        return TranscriptionResult(text, "en", audio.size / 16000, 5.0)
 
 
 class FakeCapture:
-    def __init__(self, audio: np.ndarray) -> None:
+    def __init__(self, audio: np.ndarray, drains: list[np.ndarray] | None = None) -> None:
         self._audio = audio
+        self._drains = list(drains or [])
 
     def start(self) -> None:
         pass
 
     def drain(self) -> np.ndarray:
+        if self._drains:
+            return self._drains.pop(0)
         return np.empty(0, dtype=np.float32)
 
     def stop(self) -> np.ndarray:
@@ -149,6 +154,33 @@ def test_polisher_fallback_emits_its_note(qapp: QApplication) -> None:
     assert _pump_until(qapp, lambda: bool(done))
     assert notices == ["Ollama isn't running."]
     assert clipboard.get_text() == "the raw words"
+
+
+def test_toggle_flow_streams_segments_and_joins(qapp: QApplication) -> None:
+    engine = FakeEngine(texts=["part one", "part two"])
+    clipboard = InMemoryClipboard()
+    cfg = Config()
+    state = AppState(tone="verbatim")
+    injector = Injector(clipboard, FakeKeys(), restore_delay_ms=0, sleep=lambda _s: None)
+    # Drain feed: 6 s of speech, then 1.2 s of silence -> the segmenter cuts
+    # segment one mid-recording; the 1 s tail at stop becomes segment two.
+    speech = np.full(6 * 16000, 0.2, dtype=np.float32)
+    silence = np.zeros(int(1.2 * 16000), dtype=np.float32)
+    tail = np.full(16000, 0.2, dtype=np.float32)
+    capture = FakeCapture(tail, drains=[speech, silence])
+    controller = DictationController(
+        cfg, state, engine, injector, capture_factory=lambda: capture
+    )
+    done: list[int] = []
+    controller.injected.connect(done.append)
+
+    controller.toggle()
+    assert _pump_until(qapp, lambda: _state_recording(controller))
+    assert _pump_until(qapp, lambda: len(engine.prompts) >= 1)  # eager segment STT
+    controller.toggle()
+    assert _pump_until(qapp, lambda: bool(done))
+    assert clipboard.get_text() == "part one part two"
+    assert len(engine.prompts) == 2  # two segments, never one blob
 
 
 def test_verbatim_tone_skips_polisher(qapp: QApplication) -> None:

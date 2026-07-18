@@ -53,6 +53,10 @@ class OllamaClient:
                         f"Ollama doesn't have {self._model}. Run: ollama pull {self._model}"
                     ) from exc
                 raise LlmError(f"Ollama error {exc.response.status_code}.") from exc
+            except httpx.HTTPError as exc:
+                # The rest of the transport zoo (ReadError, RemoteProtocolError, ...);
+                # anything escaping as a non-LlmError would bypass the raw-text fallback.
+                raise LlmError("Ollama connection failed.") from exc
             except (KeyError, ValueError) as exc:
                 raise LlmError("Ollama sent an unexpected reply.") from exc
         raise LlmError("Ollama isn't running.") from last_connect_error

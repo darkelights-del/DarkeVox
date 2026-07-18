@@ -77,6 +77,17 @@ class PolishPipeline:
                 elapsed_ms=(time.perf_counter() - start) * 1000,
                 note=f"{exc} Raw transcript injected.",
             )
+        except Exception:
+            # The invariant outranks everything: polish never loses words,
+            # whatever the transport throws.
+            log.exception("polish crashed; falling back to raw transcript")
+            return PolishResult(
+                text=transcript,
+                tone=tone,
+                fell_back=True,
+                elapsed_ms=(time.perf_counter() - start) * 1000,
+                note="Polish failed. Raw transcript injected.",
+            )
         text = sanitize(raw)
         if not text:
             log.warning("polish produced empty text; using raw transcript")

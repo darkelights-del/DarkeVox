@@ -7,7 +7,7 @@ import pytest
 
 from darkevox.config import LlmConfig
 from darkevox.polish import llm as llm_mod
-from darkevox.polish.llm import LlmError, OllamaClient, client_from_config
+from darkevox.polish.llm import LlmError, OllamaClient, OpenRouterClient, client_from_config
 
 MESSAGES = [{"role": "user", "content": "hi"}]
 
@@ -71,6 +71,47 @@ def test_ollama_missing_model_names_the_pull_command(monkeypatch: pytest.MonkeyP
     client = OllamaClient("http://localhost:11434", "qwen2.5:3b")
     with pytest.raises(LlmError, match="ollama pull"):
         client.chat(MESSAGES, timeout_s=5.0)
+
+
+class _FakeCompletions:
+    def __init__(self, content: str | None = None, exc: Exception | None = None) -> None:
+        self._content = content
+        self._exc = exc
+        self.kwargs: dict | None = None
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        if self._exc is not None:
+            raise self._exc
+        message = type("Message", (), {"content": self._content})
+        choice = type("Choice", (), {"message": message})
+        return type("Response", (), {"choices": [choice]})
+
+
+def _openrouter_with(fake: _FakeCompletions) -> OpenRouterClient:
+    client = OpenRouterClient("https://openrouter.ai/api/v1", "some/model:free", "sk-test")
+    chat = type("Chat", (), {"completions": fake})()
+    client._client = type("Sdk", (), {"chat": chat})()
+    return client
+
+
+def test_openrouter_success_trims_and_passes_params() -> None:
+    fake = _FakeCompletions("  Polished.  ")
+    client = _openrouter_with(fake)
+    assert client.chat(MESSAGES, timeout_s=7.0) == "Polished."
+    assert fake.kwargs is not None
+    assert fake.kwargs["model"] == "some/model:free"
+    assert fake.kwargs["timeout"] == 7.0
+
+
+def test_openrouter_empty_reply_is_llm_error() -> None:
+    with pytest.raises(LlmError, match="empty reply"):
+        _openrouter_with(_FakeCompletions(content=None)).chat(MESSAGES, timeout_s=5.0)
+
+
+def test_openrouter_sdk_exception_normalized_to_llm_error() -> None:
+    with pytest.raises(LlmError, match="OpenRouter call failed"):
+        _openrouter_with(_FakeCompletions(exc=RuntimeError("boom"))).chat(MESSAGES, timeout_s=5.0)
 
 
 def test_backend_selection_ollama() -> None:

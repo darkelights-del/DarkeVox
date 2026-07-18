@@ -214,12 +214,17 @@ class DictationController(QObject):
             self._finish(text, {})
 
     def _finish(self, text: str, timings: dict[str, float]) -> None:
+        # A newer recording owns the HUD; this dictation still injects, but its
+        # progress/done signals stay quiet instead of clobbering "listening".
+        quiet = self._state.recording
         if not text:
-            self.state_changed.emit("done", "no speech")
+            if not quiet:
+                self.state_changed.emit("done", "no speech")
             return
         grounded = False
         if self._polisher is not None and self._state.tone != "verbatim":
-            self.state_changed.emit("polishing", "polishing")
+            if not quiet:
+                self.state_changed.emit("polishing", "polishing")
             with stage(timings, "polish"):
                 outcome = self._polisher(text)
             text = outcome.text
@@ -230,7 +235,9 @@ class DictationController(QObject):
         with stage(timings, "inject"):
             report = self._injector.inject(text)
         log.info("dictation %s", format_timings(timings))
-        if report.ok:
-            self.injected.emit(len(text.split()))
+        if not report.ok:
+            self.error.emit(report.note or "Injection failed.")
+        elif self._state.recording:
+            log.info("dictation finished during a new recording; HUD flash skipped")
         else:
-            self.error.emit("Injection failed. Transcript is on the clipboard.")
+            self.injected.emit(len(text.split()))

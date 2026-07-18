@@ -49,7 +49,7 @@ QMenu {
 }
 QMenu::item { background: transparent; padding: 6px 24px 6px 12px; border-radius: 6px; }
 QMenu::item:selected { background: $blue_100; }
-QMenu::item:disabled { color: $ink_400; }
+QMenu::item:disabled { color: $ink_600; font-size: 11px; }
 QMenu::separator { height: 1px; background: $cream_200; margin: 4px 8px; }
 QPushButton {
     background: $cream_50;
@@ -82,6 +82,16 @@ QComboBox QAbstractItemView {
     border-radius: 8px;
     selection-background-color: $blue_100;
     selection-color: $ink_900;
+}
+QFrame[role="card"] {
+    background: $cream_50;
+    border: 1px solid $cream_200;
+    border-radius: 12px;
+}
+QFrame[role="card"] QWidget { background: transparent; }
+QFrame[role="card"] QLineEdit, QFrame[role="card"] QComboBox,
+QFrame[role="card"] QSpinBox, QFrame[role="card"] QDoubleSpinBox {
+    background: $cream_100;
 }
 QLabel { background: transparent; }
 QLabel[role="caption"] { font-size: 11px; color: $ink_600; }

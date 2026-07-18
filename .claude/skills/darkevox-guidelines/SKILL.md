@@ -13,7 +13,7 @@ DarkeVox is a local-first Windows dictation and context tool. Its whole value is
 
 ## Architecture boundaries
 
-The core packages `stt/`, `polish/`, and `context/` never import PySide6, pynput, pywin32, or anything Windows-specific. They take plain paths and config values as constructor arguments and expose plain-Python APIs. The long-term plan wraps the core in a small FastAPI service so phone clients reach the same knowledge base over Tailscale; any core function that would be awkward to expose over HTTP (hidden global state, Qt types in signatures) is a design bug today, not later.
+The core packages `stt/`, `polish/`, and `context/` never import PySide6, pynput, pywin32, or anything Windows-specific. They take plain paths and config values as constructor arguments and expose plain-Python APIs. The long-term plan wraps the core in a small FastAPI service so phone clients reach the same knowledge base over Tailscale; any core function that would be awkward to expose over HTTP (hidden global state, Qt types in signatures) counts as a design bug the moment it lands.
 
 Everything OS-bound lives in `audio/hotkeys.py`, `inject/`, and `ui/`. `audio/capture.py` may import sounddevice but keeps Qt out; hotkeys use plain callbacks that `app.py` bridges to Qt signals. Windows-only imports (pywin32) are guarded so the test suite runs on any platform against fakes.
 
@@ -31,7 +31,7 @@ Log per-stage timings on every dictation: capture stop, STT, polish, inject, tot
 
 ## Failure behavior
 
-Every network call has a timeout and a user-visible fallback. Polish gets a hard 10-second cap, then the raw transcript injects with a HUD notice. A missing microphone is a tray notification, not a crash. Rapid hotkey mashing may drop a recording; it must never deadlock the state machine. Errors shown to the user follow the no-slop-writing skill: short, concrete, no exclamation marks ("Polish timed out. Raw transcript injected." not "Oops! Something went wrong").
+Every network call has a timeout and a user-visible fallback. Polish gets a hard 10-second cap, then the raw transcript injects with a HUD notice. A missing microphone produces a tray notification while the app keeps running. Rapid hotkey mashing may drop a recording; it must never deadlock the state machine. Errors shown to the user follow the no-slop-writing skill: short, concrete, no exclamation marks ("Polish timed out. Raw transcript injected." not "Oops! Something went wrong").
 
 ## Prompt hygiene
 

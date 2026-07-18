@@ -98,17 +98,21 @@ class MicrophoneCapture:
         except OSError as exc:
             raise CaptureError(f"audio backend unavailable: {exc}") from exc
         try:
-            self._stream = sd.InputStream(
+            stream = sd.InputStream(
                 samplerate=SAMPLE_RATE,
                 channels=1,
                 dtype="float32",
                 device=self._device,
                 callback=self._on_audio,
             )
-            self._stream.start()
         except (sd.PortAudioError, ValueError) as exc:
-            self._stream = None
             raise CaptureError(f"microphone unavailable: {exc}") from exc
+        try:
+            stream.start()
+        except (sd.PortAudioError, ValueError) as exc:
+            stream.close()  # opened but unstartable; don't leak the PortAudio handle
+            raise CaptureError(f"microphone unavailable: {exc}") from exc
+        self._stream = stream
 
     def _on_audio(self, indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
         if status:

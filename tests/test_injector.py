@@ -10,10 +10,11 @@ from darkevox.inject.injector import Injector
 
 
 class FakeKeys:
-    def __init__(self, fail_paste: bool = False) -> None:
+    def __init__(self, fail_paste: bool = False, fail_type: bool = False) -> None:
         self.pastes = 0
         self.typed: list[str] = []
         self.fail_paste = fail_paste
+        self.fail_type = fail_type
         self.clipboard_at_paste: str | None = None
         self._clipboard: InMemoryClipboard | None = None
 
@@ -28,6 +29,8 @@ class FakeKeys:
             self.clipboard_at_paste = self._clipboard.get_text()
 
     def type_text(self, text: str) -> None:
+        if self.fail_type:
+            raise RuntimeError("typing blocked")
         self.typed.append(text)
 
 
@@ -83,6 +86,15 @@ def test_typing_method_never_touches_clipboard() -> None:
     assert report.ok and report.method == "type"
     assert keys.typed == ["typed out"]
     assert clipboard.get_text() == "untouched"
+
+
+def test_typing_failure_leaves_transcript_on_clipboard() -> None:
+    clipboard = InMemoryClipboard()
+    keys = FakeKeys(fail_type=True)
+    report = _injector(clipboard, keys, method="type").inject("precious words")
+    assert not report.ok and report.method == "type"
+    assert "clipboard" in report.note
+    assert clipboard.get_text() == "precious words"
 
 
 def test_empty_text_is_a_noop() -> None:

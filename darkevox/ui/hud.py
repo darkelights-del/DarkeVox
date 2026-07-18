@@ -8,7 +8,7 @@ appends when polish used retrieved context.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEasingCurve, Qt, QTimer, QVariantAnimation
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer, QVariantAnimation
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QGraphicsDropShadowEffect, QWidget
 
@@ -65,9 +65,14 @@ class Hud(QWidget):
         self._pulse.setLoopCount(-1)
         self._pulse.valueChanged.connect(self._on_pulse)
 
+        # The spec's 250 ms fade for the pill appearing and leaving.
+        self._fade = QPropertyAnimation(self, b"windowOpacity", self)
+        self._fade.setDuration(250)
+        self._fade.finished.connect(self._after_fade)
+
         self._hide_timer = QTimer(self)
         self._hide_timer.setSingleShot(True)
-        self._hide_timer.timeout.connect(self.hide)
+        self._hide_timer.timeout.connect(self._fade_out)
 
     def show_state(
         self,
@@ -89,8 +94,29 @@ class Hud(QWidget):
         self._hide_timer.stop()
         if auto_hide_ms is not None:
             self._hide_timer.start(auto_hide_ms)
-        self.show()
+        if not self.isVisible():
+            self.setWindowOpacity(0.0)
+            self.show()
+            self._start_fade(1.0)
+        else:
+            self._fade.stop()
+            self.setWindowOpacity(1.0)
         self.update()
+
+    def _start_fade(self, end: float) -> None:
+        self._fade.stop()
+        self._fade.setStartValue(self.windowOpacity())
+        self._fade.setEndValue(end)
+        self._fade.start()
+
+    def _fade_out(self) -> None:
+        if self.isVisible():
+            self._start_fade(0.0)
+
+    def _after_fade(self) -> None:
+        if float(self._fade.endValue()) == 0.0:
+            self.hide()
+            self.setWindowOpacity(1.0)
 
     def done(self, words: int) -> None:
         label = f"{words} word" if words == 1 else f"{words} words"
@@ -102,7 +128,9 @@ class Hud(QWidget):
     def dismiss(self) -> None:
         self._pulse.stop()
         self._hide_timer.stop()
+        self._fade.stop()
         self.hide()
+        self.setWindowOpacity(1.0)
 
     def _on_pulse(self, value: float) -> None:
         self._dot_opacity = float(value)

@@ -34,6 +34,7 @@ def test_format_timings() -> None:
 def test_setup_logging_creates_file(tmp_path: Path) -> None:
     root = logging.getLogger()
     before = list(root.handlers)
+    before_level = root.level
     try:
         log_file = setup_logging(tmp_path / "logs")
         logging.getLogger("test").info("hello")
@@ -44,3 +45,9 @@ def test_setup_logging_creates_file(tmp_path: Path) -> None:
             if handler not in before:
                 root.removeHandler(handler)
                 handler.close()
+        root.setLevel(before_level)  # setup_logging sets INFO; don't leak it
+
+
+def test_setup_logging_level_restored_by_previous_test() -> None:
+    # Guards the teardown above: the suite must not run at a leaked INFO level.
+    assert logging.getLogger().level != logging.INFO

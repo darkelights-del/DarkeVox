@@ -87,13 +87,10 @@ class Injector:
         try:
             self._keys.type_text(text)
             return InjectReport(ok=True, method="type", restored=False)
-        except Exception as exc:
+        except Exception:
             log.exception("typing injection failed")
-            self._leave_on_clipboard(text)
-            return InjectReport(
-                ok=False, method="type", restored=False,
-                note=f"typing failed ({exc}); transcript left on clipboard",
-            )
+            rescued = self._leave_on_clipboard(text)
+            return InjectReport(ok=False, method="type", restored=False, note=_rescue_note(rescued))
 
     def _inject_by_paste(self, text: str) -> InjectReport:
         saved: str | None = None
@@ -113,16 +110,25 @@ class Injector:
                 self._clipboard.set_text(saved)
                 restored = True
             return InjectReport(ok=True, method="paste", restored=restored)
-        except Exception as exc:
+        except Exception:
             log.exception("paste injection failed")
-            self._leave_on_clipboard(text)
+            rescued = self._leave_on_clipboard(text)
             return InjectReport(
-                ok=False, method="paste", restored=False,
-                note=f"paste failed ({exc}); transcript left on clipboard",
+                ok=False, method="paste", restored=False, note=_rescue_note(rescued)
             )
 
-    def _leave_on_clipboard(self, text: str) -> None:
+    def _leave_on_clipboard(self, text: str) -> bool:
         try:
             self._clipboard.set_text(text)
+            return True
         except Exception:
             log.exception("could not place transcript on clipboard")
+            # Last resort for the never-lose-words rule: the log keeps the text.
+            log.error("transcript preserved here: %s", text)
+            return False
+
+
+def _rescue_note(rescued: bool) -> str:
+    if rescued:
+        return "Injection failed. Transcript is on the clipboard."
+    return "Injection failed. Transcript saved to the log."

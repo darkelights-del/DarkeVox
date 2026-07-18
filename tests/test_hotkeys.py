@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from darkevox.audio.hotkeys import ComboTracker, parse_combo
+from darkevox.audio.hotkeys import ComboTracker, _key_name, parse_combo
 
 
 def test_parse_combo_basic() -> None:
@@ -92,6 +92,52 @@ def test_rapid_mashing_never_wedges() -> None:
     t.press("alt")
     t.press("space")
     assert rec.events[-1] == "hold_start"
+
+
+class _StubListener:
+    """pynput's canonical() collapses layout variants; identity is enough here."""
+
+    def canonical(self, key: object) -> object:
+        return key
+
+
+class _CharKey:
+    def __init__(self, char: str) -> None:
+        self.char = char
+
+
+class _NamedKey:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.char = None
+
+
+def test_key_name_lowercases_characters() -> None:
+    assert _key_name(_CharKey("A"), _StubListener()) == "a"
+    assert _key_name(_CharKey("d"), _StubListener()) == "d"
+
+
+def test_key_name_collapses_modifier_variants() -> None:
+    assert _key_name(_NamedKey("ctrl_l"), _StubListener()) == "ctrl"
+    assert _key_name(_NamedKey("ctrl_r"), _StubListener()) == "ctrl"
+    assert _key_name(_NamedKey("shift_r"), _StubListener()) == "shift"
+    assert _key_name(_NamedKey("alt_gr"), _StubListener()) == "alt"
+
+
+def test_key_name_maps_cmd_to_win_like_parse_combo() -> None:
+    assert _key_name(_NamedKey("cmd"), _StubListener()) == "win"
+    assert _key_name(_NamedKey("cmd_r"), _StubListener()) == "win"
+    assert "win" in parse_combo("cmd+f5")  # the two sides agree on the alias
+
+
+def test_key_name_passes_plain_names_and_rejects_blanks() -> None:
+    assert _key_name(_NamedKey("space"), _StubListener()) == "space"
+    assert _key_name(_NamedKey("f5"), _StubListener()) == "f5"
+
+    class Bare:
+        char = None
+
+    assert _key_name(Bare(), _StubListener()) is None
 
 
 def test_callback_exception_does_not_break_tracking() -> None:

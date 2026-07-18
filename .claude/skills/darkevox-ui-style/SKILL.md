@@ -57,7 +57,7 @@ Spacing scale: 4 / 8 / 12 / 16 / 24. Controls get 8 vertical padding minimum; di
 
 **Inputs.** `cream-50` field, hairline border, 8 radius, `ink-400` placeholder, focus border `blue-400`. Invalid: border `clay-400` plus an 11 px `clay-400` caption below saying what to fix, concretely ("Use a combo like ctrl+alt+space", not "Invalid input").
 
-**Dialogs (settings, first-run).** `cream-100` background, content in `cream-50` cards with 12 radius and 16 padding, one column, labels above controls. The first-run download dialog shows the model name, a `blue-300`-on-`blue-100` progress bar with real percentages, and a cancel button; no marketing copy.
+**Dialogs (settings, first-run).** `cream-100` background, content in `cream-50` cards with 12 radius and 16 padding, one column, labels above controls. Inputs inside a card sit on `cream-100` so the card still reads as raised. The first-run download dialog shows the model name, a `blue-300`-on-`blue-100` progress bar labeled with the real megabyte count ("217 / 484 MB", an honest approximation), and a cancel button; no marketing copy, no fake percentages.
 
 ## Microcopy
 
