@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import queue
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -71,6 +72,8 @@ class DictationController(QObject):
         self._engine = engine
         self._injector = injector
         self._capture_factory = capture_factory
+        self._modifier_guard: Callable[[], bool] | None = None
+        self._sleep: Callable[[float], None] = time.sleep
         self._capture: MicrophoneCapture | None = None
         self._segmenter: PauseSegmenter | None = None
         self._segments: list[str] = []  # touched only by the worker thread
@@ -89,6 +92,28 @@ class DictationController(QObject):
 
     def set_polisher(self, polisher: Polisher | None) -> None:
         self._polisher = polisher
+
+    def set_modifier_guard(self, guard: Callable[[], bool] | None) -> None:
+        """guard() returns True while hotkey modifiers are physically held.
+
+        Injection waits for release: a synthesized Ctrl+V while the user's
+        fingers are still on Ctrl+Alt reaches the app as Ctrl+Alt+V, which
+        pastes nothing. This is why hold-to-talk fails without the wait.
+        """
+        self._modifier_guard = guard
+
+    def _wait_for_modifier_release(self, timeout_s: float = 2.0) -> None:
+        guard = getattr(self, "_modifier_guard", None)
+        if guard is None:
+            return
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            try:
+                if not guard():
+                    return
+            except Exception:
+                return
+            self._sleep(0.03)
 
     def warm_load(self) -> None:
         self._jobs.put(("load", None))
@@ -233,6 +258,7 @@ class DictationController(QObject):
                 self.notice.emit(outcome.note or "Polish unavailable. Raw transcript injected.")
         self.grounded_changed.emit(grounded)
         with stage(timings, "inject"):
+            self._wait_for_modifier_release()
             report = self._injector.inject(text)
         log.info("dictation %s", format_timings(timings))
         if not report.ok:

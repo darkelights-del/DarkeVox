@@ -183,6 +183,30 @@ def test_toggle_flow_streams_segments_and_joins(qapp: QApplication) -> None:
     assert len(engine.prompts) == 2  # two segments, never one blob
 
 
+def test_injection_waits_for_modifier_release(qapp: QApplication) -> None:
+    engine = FakeEngine("waited words")
+    clipboard = InMemoryClipboard()
+    controller, state = _controller(qapp, engine, clipboard)
+    state.tone = "verbatim"
+    controller._sleep = lambda _s: None  # keep the wait loop instant in tests
+    guard_calls: list[bool] = []
+
+    def guard() -> bool:
+        guard_calls.append(True)
+        return len(guard_calls) < 3  # fingers still on Ctrl+Alt for two polls
+
+    controller.set_modifier_guard(guard)
+    done: list[int] = []
+    controller.injected.connect(done.append)
+
+    controller.hold_start()
+    _pump_until(qapp, lambda: _state_recording(controller))
+    controller.hold_end()
+    assert _pump_until(qapp, lambda: bool(done))
+    assert len(guard_calls) >= 3  # injection held off until the guard cleared
+    assert clipboard.get_text() == "waited words"
+
+
 def test_verbatim_tone_skips_polisher(qapp: QApplication) -> None:
     engine = FakeEngine("keep me raw")
     clipboard = InMemoryClipboard()

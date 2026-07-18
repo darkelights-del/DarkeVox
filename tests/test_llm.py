@@ -37,7 +37,25 @@ def test_ollama_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls[0]["url"] == "http://localhost:11434/api/chat"
     assert calls[0]["json"]["model"] == "qwen2.5:3b"
     assert calls[0]["json"]["stream"] is False
+    assert calls[0]["json"]["keep_alive"] == "30m"  # model stays resident between calls
     assert calls[0]["timeout"] == 10.0
+
+
+def test_ollama_warm_sends_load_only_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    def handler(url, json, timeout):
+        return httpx.Response(200, json={"done": True}, request=httpx.Request("POST", url))
+
+    calls = _patch_post(monkeypatch, handler)
+    OllamaClient("http://localhost:11434", "qwen2.5:3b", keep_alive="1h").warm()
+    assert calls[0]["json"] == {"model": "qwen2.5:3b", "messages": [], "keep_alive": "1h"}
+
+
+def test_ollama_warm_swallows_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    def handler(url, json, timeout):
+        raise httpx.ConnectError("refused")
+
+    _patch_post(monkeypatch, handler)
+    OllamaClient("http://localhost:11434", "qwen2.5:3b").warm()  # must not raise
 
 
 def test_ollama_down_retries_once_then_plain_error(monkeypatch: pytest.MonkeyPatch) -> None:

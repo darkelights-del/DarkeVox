@@ -88,6 +88,12 @@ class ComboTracker:
         if not self._toggle <= self._pressed:
             self._toggle_armed = True
 
+    def pressed(self) -> frozenset[str]:
+        """Snapshot of currently held keys; the injector waits on this before
+        pasting, because a synthesized Ctrl+V lands as Ctrl+Alt+V while the
+        user's fingers are still on the hotkey."""
+        return frozenset(self._pressed)
+
     @staticmethod
     def _fire(callback: Callable[[], None]) -> None:
         try:
@@ -103,12 +109,17 @@ def _key_name(key: Any, listener: Any) -> str | None:
     if char:
         return char.lower()
     name = getattr(key, "name", None)
-    if not name:
-        return None
-    base = name.split("_")[0]
-    if base in ("ctrl", "alt", "shift", "cmd"):
-        return "win" if base == "cmd" else base
-    return name
+    if name:
+        base = name.split("_")[0]
+        if base in ("ctrl", "alt", "shift", "cmd"):
+            return "win" if base == "cmd" else base
+        return name
+    # Windows reports Ctrl+Alt+letter as a KeyCode with char=None and only a
+    # virtual-key code; recover letters and digits from the vk.
+    vk = getattr(key, "vk", None)
+    if vk is not None and (0x30 <= vk <= 0x39 or 0x41 <= vk <= 0x5A):
+        return chr(vk).lower()
+    return None
 
 
 class HotkeyManager:
@@ -121,6 +132,7 @@ class HotkeyManager:
         on_hold_start: Callable[[], None],
         on_hold_end: Callable[[], None],
         on_toggle: Callable[[], None],
+        log_keys: bool = False,
     ) -> None:
         self._tracker = ComboTracker(
             parse_combo(hold_combo),
@@ -130,6 +142,10 @@ class HotkeyManager:
             on_toggle,
         )
         self._listener: Any = None
+        self._log_keys = log_keys  # [hotkeys] log_keys in config; for diagnosing combos
+
+    def pressed(self) -> frozenset[str]:
+        return self._tracker.pressed()
 
     def start(self) -> None:
         from pynput import keyboard
@@ -144,10 +160,14 @@ class HotkeyManager:
 
     def _press(self, key: Any) -> None:
         name = _key_name(key, self._listener)
+        if self._log_keys:
+            log.info("key press: raw=%r name=%s", key, name)
         if name:
             self._tracker.press(name)
 
     def _release(self, key: Any) -> None:
         name = _key_name(key, self._listener)
+        if self._log_keys:
+            log.info("key release: raw=%r name=%s", key, name)
         if name:
             self._tracker.release(name)

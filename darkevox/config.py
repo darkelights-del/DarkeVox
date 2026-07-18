@@ -61,6 +61,8 @@ def logs_dir() -> Path:
 class HotkeysConfig:
     hold: str = "ctrl+alt+space"
     toggle: str = "ctrl+alt+d"
+    # Logs every raw key event; turn on only to diagnose a combo that won't fire.
+    log_keys: bool = False
 
 
 @dataclass
@@ -87,6 +89,10 @@ class LlmConfig:
     openrouter_model: str = ""
     timeout_s: float = 10.0
     retries: int = 1
+    # Keeps the polish model resident in Ollama between dictations; without it
+    # the model unloads after ~5 idle minutes and the next call cold-loads
+    # past the timeout.
+    keep_alive: str = "30m"
 
 
 @dataclass

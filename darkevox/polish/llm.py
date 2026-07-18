@@ -24,9 +24,30 @@ class LlmClient(Protocol):
 
 
 class OllamaClient:
-    def __init__(self, base_url: str, model: str) -> None:
+    def __init__(self, base_url: str, model: str, keep_alive: str = "30m") -> None:
         self._url = base_url.rstrip("/") + "/api/chat"
         self._model = model
+        self._keep_alive = keep_alive
+
+    def warm(self) -> None:
+        """Load the model into Ollama's memory ahead of the first dictation.
+
+        An empty messages array is Ollama's documented load-only request. The
+        cold load takes longer than the polish timeout on CPU, which is why
+        first calls time out without this. Failures only log; polish itself
+        still falls back to raw.
+        """
+        import httpx
+
+        try:
+            httpx.post(
+                self._url,
+                json={"model": self._model, "messages": [], "keep_alive": self._keep_alive},
+                timeout=300.0,
+            ).raise_for_status()
+            log.info("ollama model %s warm", self._model)
+        except Exception as exc:
+            log.warning("ollama warm-load failed: %s", exc)
 
     def chat(self, messages: list[dict[str, str]], timeout_s: float) -> str:
         import httpx
@@ -35,6 +56,7 @@ class OllamaClient:
             "model": self._model,
             "messages": messages,
             "stream": False,
+            "keep_alive": self._keep_alive,
             "options": {"temperature": 0.2},
         }
         last_connect_error: Exception | None = None
@@ -46,7 +68,7 @@ class OllamaClient:
             except httpx.ConnectError as exc:
                 last_connect_error = exc
             except httpx.TimeoutException as exc:
-                raise LlmError("Polish timed out.") from exc
+                raise LlmError("Polish timed out; the model may still be loading.") from exc
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 404:
                     raise LlmError(
@@ -95,7 +117,7 @@ class OpenRouterClient:
 def client_from_config(cfg: LlmConfig) -> LlmClient:
     """Build the configured backend, validating what the backend needs."""
     if cfg.backend == "ollama":
-        return OllamaClient(cfg.ollama_url, cfg.polish_model)
+        return OllamaClient(cfg.ollama_url, cfg.polish_model, keep_alive=cfg.keep_alive)
     if cfg.backend == "openrouter":
         if not cfg.openrouter_model:
             raise LlmError(

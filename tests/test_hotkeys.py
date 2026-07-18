@@ -140,6 +140,33 @@ def test_key_name_passes_plain_names_and_rejects_blanks() -> None:
     assert _key_name(Bare(), _StubListener()) is None
 
 
+class _VkKey:
+    """Windows Ctrl+Alt+letter events: char is None, only the vk survives."""
+
+    def __init__(self, vk: int) -> None:
+        self.char = None
+        self.vk = vk
+
+
+def test_key_name_recovers_letters_from_vk() -> None:
+    assert _key_name(_VkKey(0x44), _StubListener()) == "d"
+    assert _key_name(_VkKey(0x41), _StubListener()) == "a"
+    assert _key_name(_VkKey(0x39), _StubListener()) == "9"
+    assert _key_name(_VkKey(0x13), _StubListener()) is None  # not a letter/digit vk
+
+
+def test_pressed_snapshot_tracks_held_keys() -> None:
+    rec = Recorder()
+    t = rec.tracker()
+    t.press("ctrl")
+    t.press("alt")
+    t.press("space")
+    assert t.pressed() == frozenset({"ctrl", "alt", "space"})
+    t.release("space")
+    t.release("alt")
+    assert t.pressed() == frozenset({"ctrl"})
+
+
 def test_callback_exception_does_not_break_tracking() -> None:
     events: list[str] = []
 

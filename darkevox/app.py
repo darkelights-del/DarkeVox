@@ -127,6 +127,10 @@ def _build_polisher(cfg: config_mod.Config, state) -> object | None:
     except LlmError as exc:
         log.warning("polish disabled: %s", exc)
         return None
+    if hasattr(client, "warm"):
+        # Pre-load the Ollama model off the hot path so the first dictation
+        # doesn't eat the cold-load inside the polish timeout.
+        threading.Thread(target=client.warm, daemon=True, name="darkevox-warm").start()
     pipeline = PolishPipeline(
         client, cfg.llm, cfg.polish, cfg.dictionary.terms, NullContextProvider()
     )
@@ -238,6 +242,7 @@ def main() -> int:
             on_hold_start=controller.hold_start,
             on_hold_end=controller.hold_end,
             on_toggle=controller.toggle,
+            log_keys=cfg.hotkeys.log_keys,
         )
         try:
             manager.start()
@@ -245,6 +250,13 @@ def main() -> int:
         except Exception:
             log.exception("global hotkey listener failed to start")
             tray.notify("DarkeVox", "Global hotkeys could not start. See the log.")
+
+    def modifiers_down() -> bool:
+        if not hotkey_slot:
+            return False
+        return bool({"ctrl", "alt", "shift", "win"} & hotkey_slot[-1].pressed())
+
+    controller.set_modifier_guard(modifiers_down)
 
     def on_settings_saved(new_cfg: config_mod.Config) -> None:
         _apply_config(cfg, new_cfg)

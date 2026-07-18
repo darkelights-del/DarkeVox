@@ -48,6 +48,14 @@ The default polish model is `qwen2.5:3b` because it's fast enough to feel instan
 
 Dictionary terms (names, project words) go in the `[dictionary]` section of the config; they seed the speech recognizer and the polish prompt so "DarkeVox" never comes out "dark vox".
 
+## Running without a terminal
+
+```powershell
+.\.venv\Scripts\pythonw.exe -m darkevox.app
+```
+
+`pythonw.exe` has no console: the command returns immediately, the app lives in the tray, and closing the terminal doesn't kill it (console logging switches off by itself; the file log keeps everything). To start it with Windows, press Win+R, run `shell:startup`, and drop in a shortcut whose target is that full `pythonw.exe` path plus `-m darkevox.app`. A proper installer with a Start Menu entry comes with phase 7.
+
 ## Updates
 
 DarkeVox checks its git upstream once per launch (`[update] auto_check` in the config turns this off) and tells you from the tray when new commits exist; tray > Update now applies a fast-forward pull, then you restart the app. If dependencies changed in the update, rerun `pip install -e ".[dev]"` in the venv. Installer-based release updates arrive with phase 7 packaging.
