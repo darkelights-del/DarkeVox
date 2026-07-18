@@ -181,6 +181,12 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setQuitOnLastWindowClosed(False)
+    if sys.platform == "win32":
+        # Pin the UI font: without this Qt can fall back to MS Shell Dlg 2,
+        # which reads as a decade older than the rest of the design.
+        from PySide6.QtGui import QFont
+
+        app.setFont(QFont("Segoe UI", 10))
     app.setStyleSheet(qss())
     log.info("started; config=%s log=%s", config_mod.config_path(), log_file)
 
