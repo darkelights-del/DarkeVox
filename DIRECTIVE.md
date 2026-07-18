@@ -23,4 +23,4 @@ Ship DarkeVox to release grade: dictation that hears correctly, polish that neve
 
 ## Current state (update on every ship)
 
-Phases 0-2 complete and field-running. Panel, updater, refinement skill, voice-fidelity pass shipped. Tag `v0.1.0-beta` pushed; the owner clicks Releases > Draft from that tag to publish it. Loop iterations on voice: 2 of 3 minimum done (six-dimension audit; post-panel two-agent review). Next: iteration 3 sweep results, logo/UI pass, then phase 3.
+Phases 0-2 complete and field-running. Voice iteration 3 shipped: adaptive quiet-mic segmentation, long-segment cuts, fidelity-hardened prompts (banned lists constrain only model additions), sanitize hardening. Design pass shipped: original voice-wave mark, modern filled-field theme, overline labels, blue-500 primaries. Hourly in-session watchdog runs until 2026-07-18 14:00 UTC. Tag `v0.1.0-beta` pushed (owner publishes the Release from it). Open: owner re-test of dictation accuracy and panel look on Windows; then two dry sweeps close the voice segment and phase 3 (Compose tab) begins.

@@ -53,6 +53,12 @@ def _caption(text: str) -> QLabel:
     return label
 
 
+def _overline(text: str) -> QLabel:
+    label = QLabel(text.upper())
+    label.setProperty("role", "overline")
+    return label
+
+
 class _MicControl(QWidget):
     """Shared mouse logic for the mic: click, hold, drag."""
 
@@ -230,8 +236,8 @@ class Panel(QWidget):
         card.setProperty("role", "card")
         card.setFixedWidth(_CARD_WIDTH)
         box = QVBoxLayout(card)
-        box.setContentsMargins(16, 12, 16, 16)
-        box.setSpacing(8)
+        box.setContentsMargins(20, 14, 20, 20)
+        box.setSpacing(10)
 
         header = _DragHeader()
         header_box = QHBoxLayout(header)
@@ -255,13 +261,13 @@ class Panel(QWidget):
         mic_row.addWidget(self._status, stretch=1)
         box.addLayout(mic_row)
 
-        box.addWidget(_caption("Heard"))
+        box.addWidget(_overline("Heard"))
         self._raw = QPlainTextEdit()
         self._raw.setPlaceholderText("your words land here as you speak")
         self._raw.setMinimumHeight(76)
         box.addWidget(self._raw)
 
-        box.addWidget(_caption("Polished"))
+        box.addWidget(_overline("Polished"))
         self._polished = QPlainTextEdit()
         self._polished.setPlaceholderText("pick a tone below to polish")
         self._polished.setMinimumHeight(76)

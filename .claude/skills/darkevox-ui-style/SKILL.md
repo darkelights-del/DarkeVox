@@ -37,11 +37,11 @@ Rules that keep it coherent:
 
 ## Typography
 
-Segoe UI Variable, falling back to Segoe UI (the app is Windows-only; dev boxes fall back to the platform default sans). Sizes: 11 caption, 13 body, 15 emphasis/section titles, 20 window titles. Weight: regular everywhere, semibold only for the current state or the one thing that matters in the view. Never bold whole paragraphs; never use more than two sizes in one component.
+Segoe UI Variable, falling back to Segoe UI (the app is Windows-only; dev boxes fall back to the platform default sans; the app pins Segoe UI 10pt on Windows so Qt never falls back to MS Shell Dlg 2). Sizes: 10 overline (uppercase, +1px letter-spacing, semibold, `ink-400`; field labels in cards), 11 caption, 13 body, 15 emphasis/section titles, 20 window titles. Weight: regular everywhere, semibold only for overlines, the primary action, or the one thing that matters in the view.
 
 ## Spacing and shape
 
-Spacing scale: 4 / 8 / 12 / 16 / 24. Controls get 8 vertical padding minimum; dialog margins are 16; unrelated groups separate by 24. Radius: 8 on controls and inputs, 12 on cards and dialogs, full pill on the HUD and badges. Borders are 1px `cream-200`; the focus state swaps the border to `blue-400` (no glow). Exactly one shadow exists in the app, on floating surfaces (HUD, menus): 0 4 16 rgba(42, 51, 64, 0.10).
+Spacing scale: 4 / 8 / 12 / 16 / 20 / 24. Controls get 9 vertical padding; card padding is 20; unrelated groups separate by 24. Radius: 10 on controls and inputs, 16 on cards and dialogs, full pill on the HUD and badges. Inputs are the filled style: `cream-200` fill, no visible border, focus swaps to a `cream-50` fill with a 1px `blue-400` border (no glow). Exactly one shadow exists in the app, on floating surfaces: 0 6 24 rgba(42, 51, 64, 0.086), large and soft.
 
 ## Motion
 
@@ -51,9 +51,9 @@ Spacing scale: 4 / 8 / 12 / 16 / 24. Controls get 8 vertical padding minimum; di
 
 **HUD.** A frameless, always-on-top pill, bottom-center, 8 px above the taskbar, auto-width with 16 px horizontal padding, 36 px tall. `cream-50` fill, hairline border, the single app shadow. Content: a state dot plus one short label in `ink-900` 13 px. States: listening (blue-300 dot, pulsing), transcribing (blue-400 dot, steady), polishing (honey-300 dot, label "polishing"), grounded (sage-300 mini-badge appended), done (flashes the final word count, fades in 800 ms), error (clay-400 dot, plain-words message, stays 4 s). The HUD never takes focus and never accepts clicks in v1.
 
-**Tray icon.** 16/24/32 px roundrect, `blue-300` fill, `cream-50` mic glyph, drawn with QPainter in `ui/icons.py` (no PNG assets). Recording state swaps the fill to `blue-500`. The menu is a standard QMenu restyled: `cream-50` panel, 8 radius, hover rows `blue-100`, section labels in `ink-600` 11 px.
+**The mark.** DarkeVox's logo is an original voice-wave: five rounded `cream-50` bars (heights 0.26/0.46/0.62/0.38/0.22 of the mark) centered on a `blue-400` squircle (0.30 radius), drawn with QPainter in `ui/icons.py`. Never an emoji, never a glyph font, never a stock mic. Recording deepens the ground to `blue-500`. The same wave draws at 16-56 px for tray, pill, and mic button. The tray menu is a standard QMenu restyled: `cream-50` panel, 8 radius, hover rows `blue-100`, section labels in `ink-600` 11 px.
 
-**Buttons.** Primary: `blue-400` fill, `ink-900` text, hover `blue-300`, pressed `blue-500` with `cream-50` text. Secondary: `cream-50` fill, hairline border, hover `cream-200`. Destructive appears only in confirmation dialogs: secondary shape with `clay-400` text.
+**Buttons.** Primary: `blue-500` fill, `cream-50` semibold text, hover `blue-400`; one per view. Secondary: `cream-50` fill, hairline border, hover `cream-200`. Checkable (tone pickers): checked = `blue-100` fill with `blue-400` border. Quiet (`variant="quiet"`): borderless 11px `ink-600`, for chrome only. Destructive appears only in confirmation dialogs: secondary shape with `clay-400` text.
 
 **Inputs.** `cream-50` field, hairline border, 8 radius, `ink-400` placeholder, focus border `blue-400`. Invalid: border `clay-400` plus an 11 px `clay-400` caption below saying what to fix, concretely ("Use a combo like ctrl+alt+space", not "Invalid input").
 

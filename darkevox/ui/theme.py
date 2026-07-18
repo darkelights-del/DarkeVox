@@ -28,10 +28,11 @@ TOKENS: dict[str, str] = {
 FONT_STACK = '"Segoe UI Variable", "Segoe UI", sans-serif'
 
 # QSS has no box-shadow; floating surfaces (HUD, menus) apply the one app shadow
-# via QGraphicsDropShadowEffect with these values.
-SHADOW_BLUR = 16
-SHADOW_DY = 4
-SHADOW_RGBA = (42, 51, 64, 26)
+# via QGraphicsDropShadowEffect with these values. Large and soft reads modern;
+# tight and dark reads 2010.
+SHADOW_BLUR = 24
+SHADOW_DY = 6
+SHADOW_RGBA = (42, 51, 64, 22)
 
 _QSS = Template(
     """
@@ -54,26 +55,32 @@ QMenu::separator { height: 1px; background: $cream_200; margin: 4px 8px; }
 QPushButton {
     background: $cream_50;
     border: 1px solid $cream_200;
-    border-radius: 8px;
-    padding: 8px 16px;
+    border-radius: 10px;
+    padding: 9px 18px;
 }
 QPushButton:hover { background: $cream_200; }
 QPushButton:pressed { background: $blue_100; }
 QPushButton:disabled { color: $ink_400; }
 QPushButton:checked { background: $blue_100; border: 1px solid $blue_400; }
-QPushButton[variant="primary"] { background: $blue_400; border: none; }
-QPushButton[variant="primary"]:hover { background: $blue_300; }
+QPushButton[variant="primary"] {
+    background: $blue_500;
+    border: none;
+    color: $cream_50;
+    font-weight: 600;
+}
+QPushButton[variant="primary"]:hover { background: $blue_400; color: $cream_50; }
 QPushButton[variant="primary"]:pressed { background: $blue_500; color: $cream_50; }
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit {
-    background: $cream_50;
-    border: 1px solid $cream_200;
-    border-radius: 8px;
-    padding: 8px;
+    background: $cream_200;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 9px;
     selection-background-color: $blue_200;
     placeholder-text-color: $ink_400;
 }
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QPlainTextEdit:focus {
     border: 1px solid $blue_400;
+    background: $cream_50;
 }
 QLineEdit[invalid="true"] { border: 1px solid $clay_400; }
 QComboBox::drop-down { border: none; width: 24px; }
@@ -87,24 +94,29 @@ QComboBox QAbstractItemView {
 QFrame[role="card"] {
     background: $cream_50;
     border: 1px solid $cream_200;
-    border-radius: 12px;
+    border-radius: 16px;
 }
 QFrame[role="card"] QWidget { background: transparent; }
 QFrame[role="card"] QLineEdit, QFrame[role="card"] QComboBox,
 QFrame[role="card"] QSpinBox, QFrame[role="card"] QDoubleSpinBox,
 QFrame[role="card"] QPlainTextEdit {
-    background: $cream_100;
+    background: $cream_200;
+}
+QFrame[role="card"] QLineEdit:focus, QFrame[role="card"] QComboBox:focus,
+QFrame[role="card"] QSpinBox:focus, QFrame[role="card"] QDoubleSpinBox:focus,
+QFrame[role="card"] QPlainTextEdit:focus {
+    background: $cream_50;
 }
 QFrame[role="card"] QPushButton { background: $cream_50; }
 QFrame[role="card"] QPushButton:hover { background: $cream_200; }
 QFrame[role="card"] QPushButton:pressed { background: $blue_100; }
 QFrame[role="card"] QPushButton:checked { background: $blue_100; }
-QFrame[role="card"] QPushButton[variant="primary"] { background: $blue_400; border: none; }
-QFrame[role="card"] QPushButton[variant="primary"]:hover { background: $blue_300; }
-QFrame[role="card"] QPushButton[variant="primary"]:pressed {
+QFrame[role="card"] QPushButton[variant="primary"] {
     background: $blue_500;
+    border: none;
     color: $cream_50;
 }
+QFrame[role="card"] QPushButton[variant="primary"]:hover { background: $blue_400; }
 QPushButton[variant="quiet"] {
     background: transparent;
     border: none;
@@ -115,6 +127,12 @@ QPushButton[variant="quiet"] {
 QPushButton[variant="quiet"]:hover { background: $cream_200; color: $ink_900; }
 QLabel { background: transparent; }
 QLabel[role="caption"] { font-size: 11px; color: $ink_600; }
+QLabel[role="overline"] {
+    font-size: 10px;
+    font-weight: 600;
+    color: $ink_400;
+    letter-spacing: 1px;
+}
 QLabel[role="error"] { font-size: 11px; color: $clay_400; }
 QLabel[role="title"] { font-size: 20px; }
 QLabel[role="section"] { font-size: 15px; }
