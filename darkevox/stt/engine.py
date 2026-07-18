@@ -27,6 +27,27 @@ class TranscriptionResult:
     elapsed_ms: float
 
 
+_TARGET_RMS = 0.08  # ~ -22 dBFS: a comfortable whisper input level
+_MAX_BOOST = 30.0  # never amplify a pure noise floor into fake speech
+
+
+def boost_quiet(audio: np.ndarray) -> tuple[np.ndarray, float]:
+    """Bring quiet microphones up to a level whisper hears well.
+
+    Boost only (never attenuate), capped, and clip-protected. Digital
+    silence passes through untouched so VAD still sees silence.
+    """
+    if audio.size == 0:
+        return audio, 1.0
+    rms = float(np.sqrt(np.mean(np.square(audio))))
+    if rms < 1e-6:
+        return audio, 1.0
+    gain = min(_MAX_BOOST, max(1.0, _TARGET_RMS / rms))
+    if gain > 1.0:
+        audio = np.clip(audio * gain, -1.0, 1.0)
+    return audio, gain
+
+
 def build_initial_prompt(dictionary_terms: list[str]) -> str | None:
     """Seed Whisper with the personal dictionary so names spell right.
 
@@ -94,6 +115,9 @@ class SttEngine:
         if self._model is None:
             raise RuntimeError("SttEngine.load() must run before transcribe()")
         audio = audio.reshape(-1).astype(np.float32, copy=False)
+        audio, gain = boost_quiet(audio)
+        if gain > 1.5:
+            log.info("quiet input boosted x%.1f before transcription", gain)
         start = time.perf_counter()
         # Beam search buys real accuracy on imperfect mics; cross-segment
         # conditioning stays off (repetition loops in dictation).

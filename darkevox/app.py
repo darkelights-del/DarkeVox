@@ -253,12 +253,26 @@ def main() -> int:
         lambda text, sink: panel.set_partial(text) if sink == "panel" else None
     )
     controller.session_finished.connect(panel.on_session_finished)
-    controller.panel_polish_ready.connect(panel.on_polish_ready)
+    controller.polish_ready.connect(
+        lambda text, tone, fb, req: panel.on_polish_ready(text, tone, fb)
+        if req == "panel"
+        else None
+    )
     # Same-thread direct delivery: session_sink is still this session's value.
     controller.recording_changed.connect(
         lambda rec: panel.set_recording(rec and controller.session_sink == "panel")
     )
     tray.panel_requested.connect(panel.show_expanded)
+
+    from darkevox.ui.main_window import MainWindow
+
+    main_window = MainWindow(controller, default_tone=state.tone)
+    controller.polish_ready.connect(
+        lambda text, tone, fb, req: main_window.on_polish_ready(text, tone, fb)
+        if req == "compose"
+        else None
+    )
+    tray.compose_requested.connect(main_window.open_compose)
     if cfg.ui.panel_x >= 0 and cfg.ui.panel_y >= 0:
         panel.move(cfg.ui.panel_x, cfg.ui.panel_y)
         panel.show_pill() if cfg.ui.panel_collapsed else panel.show_expanded()

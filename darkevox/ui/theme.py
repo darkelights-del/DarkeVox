@@ -155,6 +155,22 @@ QCheckBox::indicator {
     background: $cream_50;
 }
 QCheckBox::indicator:checked { background: $blue_400; border: 1px solid $blue_400; }
+QTabWidget::pane {
+    background: $cream_50;
+    border: 1px solid $cream_200;
+    border-radius: 12px;
+    top: -1px;
+}
+QTabBar::tab {
+    background: transparent;
+    color: $ink_600;
+    padding: 8px 20px;
+    border: none;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+}
+QTabBar::tab:selected { background: $cream_50; color: $ink_900; }
+QTabBar::tab:hover:!selected { color: $ink_900; }
 QToolTip {
     background: $cream_50;
     color: $ink_900;

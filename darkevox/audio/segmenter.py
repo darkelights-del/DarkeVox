@@ -55,7 +55,10 @@ class PauseSegmenter:
         self._blocks.append(block)
         self._buffered += block.size
         rms = float(np.sqrt(np.mean(np.square(block))))
-        self._peak_rms = max(self._peak_rms, rms)
+        # Decay the loudness memory so one cough or pop doesn't lock the
+        # threshold high for the whole session; a spike fades in ~10 s of
+        # 250 ms drain blocks while steady speech keeps it topped up.
+        self._peak_rms = max(self._peak_rms * 0.98, rms)
         if rms < self._threshold():
             self._silence_run += block.size
         else:

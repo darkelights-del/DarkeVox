@@ -52,7 +52,7 @@ class DictationController(QObject):
     state_changed = Signal(str, str)  # (state, label) for HUD and tray
     partial_transcript = Signal(str, str)  # (accumulated raw text, sink it belongs to)
     session_finished = Signal(str)  # panel sessions: full raw transcript at stop
-    panel_polish_ready = Signal(str, str, bool)  # (text, tone, fell_back)
+    polish_ready = Signal(str, str, bool, str)  # (text, tone, fell_back, requester)
     grounded_changed = Signal(bool)  # last polish used retrieved context
     recording_changed = Signal(bool)
     injected = Signal(int)  # word count for the done flash
@@ -146,8 +146,10 @@ class DictationController(QObject):
         """Mouse click on the mic: toggle a panel session."""
         self._toggle_requested.emit("panel")
 
-    def request_polish(self, text: str, tone: str) -> None:
-        self._jobs.put(("panel_polish", (text.strip(), tone)))
+    def request_polish(self, text: str, tone: str, requester: str = "panel") -> None:
+        """On-demand polish for UI surfaces; the reply carries the requester
+        tag so the panel and the composer never consume each other's results."""
+        self._jobs.put(("panel_polish", (text.strip(), tone, requester)))
 
     def request_inject(self, text: str) -> None:
         self._jobs.put(("panel_inject", text))
@@ -286,15 +288,15 @@ class DictationController(QObject):
         elif kind == "panel_inject":
             self._panel_inject(payload)
 
-    def _panel_polish(self, text: str, tone: str) -> None:
+    def _panel_polish(self, text: str, tone: str, requester: str) -> None:
         if not text or tone == "verbatim" or self._polisher is None:
-            self.panel_polish_ready.emit(text, tone, False)
+            self.polish_ready.emit(text, tone, False, requester)
             return
         outcome = self._polisher(text, tone)
         if outcome.fell_back:
             self.notice.emit(outcome.note or "Polish unavailable.")
         self.grounded_changed.emit(outcome.used_grounding)
-        self.panel_polish_ready.emit(outcome.text, tone, outcome.fell_back)
+        self.polish_ready.emit(outcome.text, tone, outcome.fell_back, requester)
 
     def _panel_inject(self, text: str) -> None:
         if not text:

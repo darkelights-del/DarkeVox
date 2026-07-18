@@ -15,6 +15,7 @@ class Tray(QSystemTrayIcon):
     tone_selected = Signal(str)
     toggle_dictation = Signal()
     panel_requested = Signal()
+    compose_requested = Signal()
     settings_requested = Signal()
     update_requested = Signal()
 
@@ -32,6 +33,10 @@ class Tray(QSystemTrayIcon):
         panel_action = QAction("Open panel", self._menu)
         panel_action.triggered.connect(self.panel_requested.emit)
         self._menu.addAction(panel_action)
+
+        compose_action = QAction("Open composer", self._menu)
+        compose_action.triggered.connect(self.compose_requested.emit)
+        self._menu.addAction(compose_action)
 
         toggle_action = QAction("Toggle dictation", self._menu)
         toggle_action.triggered.connect(self.toggle_dictation.emit)

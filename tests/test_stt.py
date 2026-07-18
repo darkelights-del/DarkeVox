@@ -4,13 +4,41 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from darkevox.stt.engine import build_initial_prompt
+import numpy as np
+
+from darkevox.stt.engine import boost_quiet, build_initial_prompt
 from darkevox.stt.models import downloaded_mb, is_downloaded, model_path, resolve_device
 
 
 def test_initial_prompt_from_dictionary() -> None:
     prompt = build_initial_prompt(["Jake", " Q1 segment ", "DarkeVox", ""])
     assert prompt == "Glossary: Jake, Q1 segment, DarkeVox."
+
+
+def test_boost_quiet_lifts_a_whisper_quiet_mic() -> None:
+    quiet = (0.004 * np.sin(np.linspace(0, 60, 16000))).astype(np.float32)
+    boosted, gain = boost_quiet(quiet)
+    rms = float(np.sqrt(np.mean(np.square(boosted))))
+    assert gain > 10
+    assert 0.05 < rms <= 0.09  # landed near the target level
+    assert float(np.max(np.abs(boosted))) <= 1.0
+
+
+def test_boost_quiet_leaves_normal_and_silent_audio_alone() -> None:
+    normal = (0.2 * np.sin(np.linspace(0, 60, 16000))).astype(np.float32)
+    boosted, gain = boost_quiet(normal)
+    assert gain == 1.0
+    assert np.array_equal(boosted, normal)
+    silence = np.zeros(16000, dtype=np.float32)
+    same, gain = boost_quiet(silence)
+    assert gain == 1.0
+    assert np.array_equal(same, silence)
+
+
+def test_boost_quiet_caps_the_gain() -> None:
+    barely = np.full(16000, 1e-4, dtype=np.float32)
+    _boosted, gain = boost_quiet(barely)
+    assert gain == 30.0  # capped: a noise floor never becomes fake speech
 
 
 def test_initial_prompt_empty() -> None:
