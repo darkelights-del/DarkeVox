@@ -1,5 +1,5 @@
 """Entry point: single-instance lock, logging, first-run model download,
-controller wiring, tray, Qt event loop.
+controller and polish wiring, tray, Qt event loop.
 
 Qt imports stay inside functions so the module is importable (for the lock
 and tests) without PySide6 present.
@@ -11,6 +11,7 @@ import logging
 import socket
 import sys
 import threading
+from dataclasses import fields
 
 from darkevox import APP_NAME
 from darkevox import config as config_mod
@@ -114,6 +115,42 @@ def _ensure_model(cfg: config_mod.Config) -> bool:
     return accepted and models.is_downloaded(model, models_root)
 
 
+def _build_polisher(cfg: config_mod.Config, state) -> object | None:
+    """Assemble the polish pipeline, or None when the backend is misconfigured."""
+    from darkevox.context.provider import NullContextProvider
+    from darkevox.controller import PolishOutcome
+    from darkevox.polish.llm import LlmError, client_from_config
+    from darkevox.polish.pipeline import PolishPipeline
+
+    try:
+        client = client_from_config(cfg.llm)
+    except LlmError as exc:
+        log.warning("polish disabled: %s", exc)
+        return None
+    pipeline = PolishPipeline(
+        client, cfg.llm, cfg.polish, cfg.dictionary.terms, NullContextProvider()
+    )
+
+    def polisher(text: str) -> PolishOutcome:
+        result = pipeline.polish(text, state.tone)
+        return PolishOutcome(
+            text=result.text,
+            used_grounding=result.used_grounding,
+            fell_back=result.fell_back,
+            note=result.note,
+        )
+
+    return polisher
+
+
+def _apply_config(target: config_mod.Config, source: config_mod.Config) -> None:
+    """Copy section values in place so every holder of the config sees them."""
+    for section in (f.name for f in fields(target)):
+        src, dst = getattr(source, section), getattr(target, section)
+        for name in (f.name for f in fields(dst)):
+            setattr(dst, name, getattr(src, name))
+
+
 def main() -> int:
     cfg = config_mod.load()
     log_file = setup_logging(config_mod.logs_dir(), console=sys.stderr is not None)
@@ -131,6 +168,7 @@ def main() -> int:
     from darkevox.state import AppState
     from darkevox.stt.engine import SttEngine
     from darkevox.ui.hud import Hud
+    from darkevox.ui.settings import SettingsDialog
     from darkevox.ui.theme import qss
     from darkevox.ui.tray import Tray
 
@@ -152,10 +190,7 @@ def main() -> int:
     if not model_ready:
         tray.notify("DarkeVox", "Speech model missing. Relaunch to download it.")
 
-    state = AppState(
-        tone=cfg.polish.default_tone,
-        grounding=cfg.polish.grounding_enabled,
-    )
+    state = AppState(tone=cfg.polish.default_tone, grounding=cfg.polish.grounding_enabled)
     engine = SttEngine(
         cfg.stt.model,
         config_mod.models_dir(),
@@ -170,6 +205,7 @@ def main() -> int:
         restore_delay_ms=cfg.inject.restore_delay_ms,
     )
     controller = DictationController(cfg, state, engine, injector)
+    controller.set_polisher(_build_polisher(cfg, state))
     hud = Hud()
 
     def on_state(state_name: str, label: str) -> None:
@@ -184,24 +220,52 @@ def main() -> int:
     controller.error.connect(lambda message: tray.notify("DarkeVox", message))
     controller.recording_changed.connect(tray.set_recording)
 
+    tray.set_tone(state.tone)
+    tray.tone_selected.connect(lambda tone: (setattr(state, "tone", tone), tray.set_tone(tone)))
+    tray.toggle_dictation.connect(controller.toggle)
+
     if model_ready:
         controller.warm_load()
 
-    hotkeys = HotkeyManager(
-        cfg.hotkeys.hold,
-        cfg.hotkeys.toggle,
-        on_hold_start=controller.hold_start,
-        on_hold_end=controller.hold_end,
-        on_toggle=controller.toggle,
-    )
-    try:
-        hotkeys.start()
-    except Exception:
-        log.exception("global hotkey listener failed to start")
-        tray.notify("DarkeVox", "Global hotkeys could not start. See the log.")
+    hotkey_slot: list[HotkeyManager] = []
+
+    def start_hotkeys() -> None:
+        manager = HotkeyManager(
+            cfg.hotkeys.hold,
+            cfg.hotkeys.toggle,
+            on_hold_start=controller.hold_start,
+            on_hold_end=controller.hold_end,
+            on_toggle=controller.toggle,
+        )
+        try:
+            manager.start()
+            hotkey_slot.append(manager)
+        except Exception:
+            log.exception("global hotkey listener failed to start")
+            tray.notify("DarkeVox", "Global hotkeys could not start. See the log.")
+
+    def on_settings_saved(new_cfg: config_mod.Config) -> None:
+        _apply_config(cfg, new_cfg)
+        config_mod.save(cfg)
+        state.tone = cfg.polish.default_tone
+        tray.set_tone(state.tone)
+        controller.set_polisher(_build_polisher(cfg, state))
+        while hotkey_slot:
+            hotkey_slot.pop().stop()
+        start_hotkeys()
+        log.info("settings applied")
+
+    def open_settings() -> None:
+        dialog = SettingsDialog(cfg)
+        dialog.saved.connect(on_settings_saved)
+        dialog.exec()
+
+    tray.settings_requested.connect(open_settings)
+    start_hotkeys()
 
     exit_code = app.exec()
-    hotkeys.stop()
+    while hotkey_slot:
+        hotkey_slot.pop().stop()
     return exit_code
 
 

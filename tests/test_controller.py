@@ -130,6 +130,27 @@ def test_polisher_hook_runs_between_stt_and_inject(qapp: QApplication) -> None:
     assert grounded == [True]
 
 
+def test_polisher_fallback_emits_its_note(qapp: QApplication) -> None:
+    engine = FakeEngine("the raw words")
+    clipboard = InMemoryClipboard()
+    controller, state = _controller(qapp, engine, clipboard)
+    state.tone = "email"
+    controller.set_polisher(
+        lambda text: PolishOutcome(text, fell_back=True, note="Ollama isn't running.")
+    )
+    notices: list[str] = []
+    controller.notice.connect(notices.append)
+    done: list[int] = []
+    controller.injected.connect(done.append)
+
+    controller.hold_start()
+    _pump_until(qapp, lambda: _state_recording(controller))
+    controller.hold_end()
+    assert _pump_until(qapp, lambda: bool(done))
+    assert notices == ["Ollama isn't running."]
+    assert clipboard.get_text() == "the raw words"
+
+
 def test_verbatim_tone_skips_polisher(qapp: QApplication) -> None:
     engine = FakeEngine("keep me raw")
     clipboard = InMemoryClipboard()

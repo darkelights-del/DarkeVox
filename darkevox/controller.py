@@ -39,6 +39,7 @@ class PolishOutcome:
     text: str
     used_grounding: bool = False
     fell_back: bool = False
+    note: str = ""  # user-visible when fell_back
 
 
 Polisher = Callable[[str], PolishOutcome]
@@ -224,7 +225,7 @@ class DictationController(QObject):
             text = outcome.text
             grounded = outcome.used_grounding
             if outcome.fell_back:
-                self.notice.emit("Polish unavailable. Raw transcript injected.")
+                self.notice.emit(outcome.note or "Polish unavailable. Raw transcript injected.")
         self.grounded_changed.emit(grounded)
         with stage(timings, "inject"):
             report = self._injector.inject(text)
