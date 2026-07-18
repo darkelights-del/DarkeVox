@@ -60,10 +60,11 @@ QPushButton {
 QPushButton:hover { background: $cream_200; }
 QPushButton:pressed { background: $blue_100; }
 QPushButton:disabled { color: $ink_400; }
+QPushButton:checked { background: $blue_100; border: 1px solid $blue_400; }
 QPushButton[variant="primary"] { background: $blue_400; border: none; }
 QPushButton[variant="primary"]:hover { background: $blue_300; }
 QPushButton[variant="primary"]:pressed { background: $blue_500; color: $cream_50; }
-QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit {
     background: $cream_50;
     border: 1px solid $cream_200;
     border-radius: 8px;
@@ -71,7 +72,7 @@ QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
     selection-background-color: $blue_200;
     placeholder-text-color: $ink_400;
 }
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QPlainTextEdit:focus {
     border: 1px solid $blue_400;
 }
 QLineEdit[invalid="true"] { border: 1px solid $clay_400; }
@@ -90,9 +91,28 @@ QFrame[role="card"] {
 }
 QFrame[role="card"] QWidget { background: transparent; }
 QFrame[role="card"] QLineEdit, QFrame[role="card"] QComboBox,
-QFrame[role="card"] QSpinBox, QFrame[role="card"] QDoubleSpinBox {
+QFrame[role="card"] QSpinBox, QFrame[role="card"] QDoubleSpinBox,
+QFrame[role="card"] QPlainTextEdit {
     background: $cream_100;
 }
+QFrame[role="card"] QPushButton { background: $cream_50; }
+QFrame[role="card"] QPushButton:hover { background: $cream_200; }
+QFrame[role="card"] QPushButton:pressed { background: $blue_100; }
+QFrame[role="card"] QPushButton:checked { background: $blue_100; }
+QFrame[role="card"] QPushButton[variant="primary"] { background: $blue_400; border: none; }
+QFrame[role="card"] QPushButton[variant="primary"]:hover { background: $blue_300; }
+QFrame[role="card"] QPushButton[variant="primary"]:pressed {
+    background: $blue_500;
+    color: $cream_50;
+}
+QPushButton[variant="quiet"] {
+    background: transparent;
+    border: none;
+    padding: 3px 10px;
+    font-size: 11px;
+    color: $ink_600;
+}
+QPushButton[variant="quiet"]:hover { background: $cream_200; color: $ink_900; }
 QLabel { background: transparent; }
 QLabel[role="caption"] { font-size: 11px; color: $ink_600; }
 QLabel[role="error"] { font-size: 11px; color: $clay_400; }

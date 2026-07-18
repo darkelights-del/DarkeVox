@@ -115,7 +115,7 @@ def _ensure_model(cfg: config_mod.Config) -> bool:
     return accepted and models.is_downloaded(model, models_root)
 
 
-def _build_polisher(cfg: config_mod.Config, state) -> object | None:
+def _build_polisher(cfg: config_mod.Config) -> object | None:
     """Assemble the polish pipeline, or None when the backend is misconfigured."""
     from darkevox.context.provider import NullContextProvider
     from darkevox.controller import PolishOutcome
@@ -135,8 +135,8 @@ def _build_polisher(cfg: config_mod.Config, state) -> object | None:
         client, cfg.llm, cfg.polish, cfg.dictionary.terms, NullContextProvider()
     )
 
-    def polisher(text: str) -> PolishOutcome:
-        result = pipeline.polish(text, state.tone)
+    def polisher(text: str, tone: str) -> PolishOutcome:
+        result = pipeline.polish(text, tone)
         return PolishOutcome(
             text=result.text,
             used_grounding=result.used_grounding,
@@ -211,7 +211,7 @@ def main() -> int:
         restore_delay_ms=cfg.inject.restore_delay_ms,
     )
     controller = DictationController(cfg, state, engine, injector)
-    controller.set_polisher(_build_polisher(cfg, state))
+    controller.set_polisher(_build_polisher(cfg))
     hud = Hud()
 
     def on_state(state_name: str, label: str) -> None:
@@ -229,6 +229,37 @@ def main() -> int:
     tray.set_tone(state.tone)
     tray.tone_selected.connect(lambda tone: (setattr(state, "tone", tone), tray.set_tone(tone)))
     tray.toggle_dictation.connect(controller.toggle)
+
+    from darkevox.inject.focus import ForegroundTracker
+    from darkevox.ui.panel import Panel
+
+    tracker = ForegroundTracker()
+    panel = Panel(controller, tracker, default_tone=state.tone)
+    controller.set_focus_restorer(tracker.restore)
+    controller.partial_transcript.connect(
+        lambda text: panel.set_partial(text) if controller.session_sink == "panel" else None
+    )
+    controller.session_finished.connect(panel.on_session_finished)
+    controller.panel_polish_ready.connect(panel.on_polish_ready)
+    controller.recording_changed.connect(panel.set_recording)
+    tray.panel_requested.connect(panel.show_expanded)
+    if cfg.ui.panel_x >= 0 and cfg.ui.panel_y >= 0:
+        panel.move(cfg.ui.panel_x, cfg.ui.panel_y)
+        panel.show_pill() if cfg.ui.panel_collapsed else panel.show_expanded()
+    else:
+        screen = app.primaryScreen()
+        panel.show_pill()
+        if screen is not None:
+            area = screen.availableGeometry()
+            panel.move(area.right() - panel.width() - 24, area.bottom() - panel.height() - 24)
+
+    def save_panel_state() -> None:
+        cfg.ui.panel_x = panel.x()
+        cfg.ui.panel_y = panel.y()
+        cfg.ui.panel_collapsed = panel.collapsed()
+        config_mod.save(cfg)
+
+    app.aboutToQuit.connect(save_panel_state)
 
     if model_ready:
         controller.warm_load()
@@ -263,7 +294,7 @@ def main() -> int:
         config_mod.save(cfg)
         state.tone = cfg.polish.default_tone
         tray.set_tone(state.tone)
-        controller.set_polisher(_build_polisher(cfg, state))
+        controller.set_polisher(_build_polisher(cfg))
         while hotkey_slot:
             hotkey_slot.pop().stop()
         start_hotkeys()

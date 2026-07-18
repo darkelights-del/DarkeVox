@@ -112,6 +112,10 @@ class InjectConfig:
 @dataclass
 class UiConfig:
     hud_position: str = "bottom-center"
+    # Panel geometry persists across launches; -1 means "not placed yet".
+    panel_x: int = -1
+    panel_y: int = -1
+    panel_collapsed: bool = True
 
 
 @dataclass

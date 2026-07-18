@@ -1,13 +1,15 @@
-"""Dictation controller: hotkeys -> capture -> STT [-> polish] -> inject.
+"""Dictation controller: hotkeys/panel -> capture -> STT [-> polish] -> inject.
 
 Threading (see darkevox-guidelines): pynput callbacks arrive on the listener
 thread and only emit signals; the Qt main thread runs the slots that touch
-capture and timers; the single worker thread owns the STT model and the
-inject step. UI objects never appear here beyond signal emission.
+capture and timers; the single worker thread owns the STT model, polish, and
+the inject step. UI objects never appear here beyond signal emission.
 
-The polish hook is the phase 2 seam: ``set_polisher`` installs a callable
-``(transcript) -> PolishOutcome``; with none installed, raw transcripts
-inject directly.
+Every session streams: the pause segmenter cuts at natural breaths, each
+segment transcribes eagerly on the worker, and partial_transcript carries
+the accumulated text live. A session has a sink: "inject" (hotkeys: polish
+and inject automatically) or "panel" (the floating panel receives the raw
+transcript and drives polish/inject itself via request_polish/request_inject).
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from darkevox.audio.capture import SAMPLE_RATE, CaptureError, MicrophoneCapture
+from darkevox.audio.capture import CaptureError, MicrophoneCapture
 from darkevox.audio.segmenter import PauseSegmenter
 from darkevox.config import Config
 from darkevox.inject.injector import Injector
@@ -31,8 +33,6 @@ from darkevox.state import AppState
 from darkevox.stt.engine import SttEngine, build_initial_prompt
 
 log = logging.getLogger(__name__)
-
-_MIN_UTTERANCE_S = 0.25  # shorter than this is a key tap, not speech
 
 
 @dataclass
@@ -43,20 +43,23 @@ class PolishOutcome:
     note: str = ""  # user-visible when fell_back
 
 
-Polisher = Callable[[str], PolishOutcome]
+Polisher = Callable[[str, str], PolishOutcome]  # (text, tone) -> outcome
 
 
 class DictationController(QObject):
     state_changed = Signal(str, str)  # (state, label) for HUD and tray
+    partial_transcript = Signal(str)  # accumulated raw text during a live session
+    session_finished = Signal(str)  # panel sessions: full raw transcript at stop
+    panel_polish_ready = Signal(str, str, bool)  # (text, tone, fell_back)
     grounded_changed = Signal(bool)  # last polish used retrieved context
     recording_changed = Signal(bool)
     injected = Signal(int)  # word count for the done flash
     notice = Signal(str)  # non-fatal, user-visible ("Polish timed out...")
     error = Signal(str)
 
-    _hold_start_requested = Signal()
+    _hold_start_requested = Signal(str)  # sink
     _hold_end_requested = Signal()
-    _toggle_requested = Signal()
+    _toggle_requested = Signal(str)  # sink
 
     def __init__(
         self,
@@ -73,9 +76,12 @@ class DictationController(QObject):
         self._injector = injector
         self._capture_factory = capture_factory
         self._modifier_guard: Callable[[], bool] | None = None
+        self._focus_restorer: Callable[[], bool] | None = None
         self._sleep: Callable[[float], None] = time.sleep
         self._capture: MicrophoneCapture | None = None
         self._segmenter: PauseSegmenter | None = None
+        self._session_kind: str | None = None  # hold | toggle
+        self._session_sink: str = "inject"
         self._segments: list[str] = []  # touched only by the worker thread
         self._polisher: Polisher | None = None
         self._jobs: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -83,12 +89,16 @@ class DictationController(QObject):
         self._worker.start()
         self._drain_timer = QTimer(self)
         self._drain_timer.setInterval(250)
-        self._drain_timer.timeout.connect(self._drain_toggle_audio)
+        self._drain_timer.timeout.connect(self._drain_live_audio)
         # Hotkey callbacks land on the pynput thread; these signals hop the
         # actual work onto the main thread where timers and capture live.
         self._hold_start_requested.connect(self._on_hold_start)
         self._hold_end_requested.connect(self._on_hold_end)
         self._toggle_requested.connect(self._on_toggle)
+
+    @property
+    def session_sink(self) -> str:
+        return self._session_sink
 
     def set_polisher(self, polisher: Polisher | None) -> None:
         self._polisher = polisher
@@ -98,22 +108,14 @@ class DictationController(QObject):
 
         Injection waits for release: a synthesized Ctrl+V while the user's
         fingers are still on Ctrl+Alt reaches the app as Ctrl+Alt+V, which
-        pastes nothing. This is why hold-to-talk fails without the wait.
+        pastes nothing.
         """
         self._modifier_guard = guard
 
-    def _wait_for_modifier_release(self, timeout_s: float = 2.0) -> None:
-        guard = getattr(self, "_modifier_guard", None)
-        if guard is None:
-            return
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
-            try:
-                if not guard():
-                    return
-            except Exception:
-                return
-            self._sleep(0.03)
+    def set_focus_restorer(self, restorer: Callable[[], bool] | None) -> None:
+        """Panel Insert stole focus by being clicked; restorer() re-activates
+        the window the user was actually working in before we paste."""
+        self._focus_restorer = restorer
 
     def warm_load(self) -> None:
         self._jobs.put(("load", None))
@@ -121,73 +123,53 @@ class DictationController(QObject):
     # ---- entry points safe to call from any thread ----
 
     def hold_start(self) -> None:
-        self._hold_start_requested.emit()
+        self._hold_start_requested.emit("inject")
 
     def hold_end(self) -> None:
         self._hold_end_requested.emit()
 
     def toggle(self) -> None:
-        self._toggle_requested.emit()
+        self._toggle_requested.emit("inject")
+
+    def panel_press(self) -> None:
+        """Mouse push-to-talk from the panel's mic button."""
+        self._hold_start_requested.emit("panel")
+
+    def panel_release(self) -> None:
+        self._hold_end_requested.emit()
+
+    def panel_click(self) -> None:
+        """Mouse click on the mic: toggle a panel session."""
+        self._toggle_requested.emit("panel")
+
+    def request_polish(self, text: str, tone: str) -> None:
+        self._jobs.put(("panel_polish", (text.strip(), tone)))
+
+    def request_inject(self, text: str) -> None:
+        self._jobs.put(("panel_inject", text))
 
     # ---- main-thread slots ----
 
-    def _on_hold_start(self) -> None:
-        if self._state.recording:
+    def _on_hold_start(self, sink: str) -> None:
+        if self._session_kind is not None:
             return
-        self._start_capture()
-        if self._capture is not None:
-            self.state_changed.emit("listening", "listening")
+        self._start_session("hold", sink)
 
     def _on_hold_end(self) -> None:
-        if self._segmenter is not None or self._capture is None:
-            return  # toggle session active, or capture never started
-        audio = self._capture.stop()
-        self._capture = None
-        self._set_recording(False)
-        if audio.size < _MIN_UTTERANCE_S * SAMPLE_RATE:
-            self.state_changed.emit("done", "no speech")
+        if self._session_kind != "hold":
             return
-        self.state_changed.emit("transcribing", "transcribing")
-        self._jobs.put(("utterance", audio))
+        self._end_session()
 
-    def _on_toggle(self) -> None:
-        if self._segmenter is None:
-            if self._state.recording:
-                return  # a hold is in progress; toggle waits its turn
-            self._start_capture()
-            if self._capture is None:
-                return
-            self._segmenter = PauseSegmenter()
-            self._drain_timer.start()
-            self.state_changed.emit("listening", "listening (toggle)")
-        else:
-            self._drain_timer.stop()
-            assert self._capture is not None
-            tail = self._capture.stop()
-            self._capture = None
-            segmenter = self._segmenter
-            self._segmenter = None
-            self._set_recording(False)
-            segment = segmenter.feed(tail) if tail.size else None
-            if segment is not None:
-                self._jobs.put(("segment", segment))
-            remainder = segmenter.flush()
-            if remainder is not None:
-                self._jobs.put(("segment", remainder))
-            self.state_changed.emit("transcribing", "transcribing")
-            self._jobs.put(("finalize", None))
+    def _on_toggle(self, sink: str) -> None:
+        if self._session_kind is None:
+            self._start_session("toggle", sink)
+            if self._session_kind == "toggle" and sink == "inject":
+                self.state_changed.emit("listening", "listening (toggle)")
+        elif self._session_kind == "toggle":
+            self._end_session()
+        # a hold in progress ignores toggle presses
 
-    def _drain_toggle_audio(self) -> None:
-        if self._capture is None or self._segmenter is None:
-            return
-        block = self._capture.drain()
-        if block.size == 0:
-            return
-        segment = self._segmenter.feed(block)
-        if segment is not None:
-            self._jobs.put(("segment", segment))
-
-    def _start_capture(self) -> None:
+    def _start_session(self, kind: str, sink: str) -> None:
         try:
             capture = self._capture_factory()
             capture.start()
@@ -196,7 +178,45 @@ class DictationController(QObject):
             self.error.emit("No microphone found.")
             return
         self._capture = capture
+        self._segmenter = PauseSegmenter()
+        self._session_kind = kind
+        self._session_sink = sink
+        self._drain_timer.start()
         self._set_recording(True)
+        if sink == "inject":
+            self.state_changed.emit("listening", "listening")
+
+    def _end_session(self) -> None:
+        self._drain_timer.stop()
+        capture = self._capture
+        segmenter = self._segmenter
+        sink = self._session_sink
+        self._capture = None
+        self._segmenter = None
+        self._session_kind = None
+        self._set_recording(False)
+        if capture is None or segmenter is None:
+            return
+        tail = capture.stop()
+        segment = segmenter.feed(tail) if tail.size else None
+        if segment is not None:
+            self._jobs.put(("segment", segment))
+        remainder = segmenter.flush()
+        if remainder is not None:
+            self._jobs.put(("segment", remainder))
+        if sink == "inject":
+            self.state_changed.emit("transcribing", "transcribing")
+        self._jobs.put(("finalize", sink))
+
+    def _drain_live_audio(self) -> None:
+        if self._capture is None or self._segmenter is None:
+            return
+        block = self._capture.drain()
+        if block.size == 0:
+            return
+        segment = self._segmenter.feed(block)
+        if segment is not None:
+            self._jobs.put(("segment", segment))
 
     def _set_recording(self, recording: bool) -> None:
         self._state.recording = recording
@@ -225,18 +245,62 @@ class DictationController(QObject):
             except Exception:
                 log.exception("stt model load failed")
                 self.error.emit("Speech model failed to load. Check the log.")
-        elif kind == "utterance":
-            timings: dict[str, float] = {}
-            with stage(timings, "stt"):
-                result = self._engine.transcribe(payload, self._initial_prompt())
-            self._finish(result.text, timings)
         elif kind == "segment":
             result = self._engine.transcribe(payload, self._initial_prompt())
-            self._segments.append(result.text)
+            log.info("segment stt=%.0fms audio=%.1fs", result.elapsed_ms, result.audio_s)
+            if result.text:
+                self._segments.append(result.text)
+                self.partial_transcript.emit(" ".join(self._segments))
         elif kind == "finalize":
             text = " ".join(part for part in self._segments if part).strip()
             self._segments.clear()
-            self._finish(text, {})
+            if payload == "panel":
+                self.session_finished.emit(text)
+            else:
+                self._finish(text, {})
+        elif kind == "panel_polish":
+            self._panel_polish(*payload)
+        elif kind == "panel_inject":
+            self._panel_inject(payload)
+
+    def _panel_polish(self, text: str, tone: str) -> None:
+        if not text or tone == "verbatim" or self._polisher is None:
+            self.panel_polish_ready.emit(text, tone, False)
+            return
+        outcome = self._polisher(text, tone)
+        if outcome.fell_back:
+            self.notice.emit(outcome.note or "Polish unavailable.")
+        self.grounded_changed.emit(outcome.used_grounding)
+        self.panel_polish_ready.emit(outcome.text, tone, outcome.fell_back)
+
+    def _panel_inject(self, text: str) -> None:
+        if not text:
+            return
+        self._wait_for_modifier_release()
+        if self._focus_restorer is not None:
+            try:
+                if self._focus_restorer():
+                    self._sleep(0.15)  # give Windows a beat to move focus
+            except Exception:
+                log.exception("focus restore failed")
+        report = self._injector.inject(text)
+        if report.ok:
+            self.injected.emit(len(text.split()))
+        else:
+            self.error.emit(report.note or "Injection failed.")
+
+    def _wait_for_modifier_release(self, timeout_s: float = 2.0) -> None:
+        guard = self._modifier_guard
+        if guard is None:
+            return
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            try:
+                if not guard():
+                    return
+            except Exception:
+                return
+            self._sleep(0.03)
 
     def _finish(self, text: str, timings: dict[str, float]) -> None:
         # A newer recording owns the HUD; this dictation still injects, but its
@@ -251,7 +315,7 @@ class DictationController(QObject):
             if not quiet:
                 self.state_changed.emit("polishing", "polishing")
             with stage(timings, "polish"):
-                outcome = self._polisher(text)
+                outcome = self._polisher(text, self._state.tone)
             text = outcome.text
             grounded = outcome.used_grounding
             if outcome.fell_back:

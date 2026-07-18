@@ -40,6 +40,8 @@ The venv's python is called by full path so PowerShell's script-execution policy
 
 Pick a tone from the tray menu: **email** (leads with the point), **message** (short, casual), **notes** (terse lines), **verbatim** (raw transcript, no LLM, no network). The polish step never invents content; it cleans what you said and obeys spoken commands like "new paragraph" and "scratch that".
 
+There's also a mouse-first way in: the **panel**, a draggable mic pill floating above your windows (tray > Open panel, or double-click the pill to expand). Click the mic to start and stop, or press-and-hold it to talk. Your words stream into an editable "Heard" field at each pause, the tone buttons polish them (edit either field by hand whenever you like), Copy puts the result on the clipboard, and Insert hands focus back to the app you were in and pastes it there. The panel remembers where you left it.
+
 ## Configuration
 
 Config lives at `%APPDATA%\DarkeVox\config.toml`; the Settings dialog covers the common cases. API keys go to Windows Credential Manager, never into the file. Models, database, and logs live under `%LOCALAPPDATA%\DarkeVox\`.

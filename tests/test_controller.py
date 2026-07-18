@@ -121,7 +121,7 @@ def test_polisher_hook_runs_between_stt_and_inject(qapp: QApplication) -> None:
     clipboard = InMemoryClipboard()
     controller, state = _controller(qapp, engine, clipboard)
     state.tone = "email"
-    controller.set_polisher(lambda text: PolishOutcome(text.upper(), used_grounding=True))
+    controller.set_polisher(lambda text, tone: PolishOutcome(text.upper(), used_grounding=True))
     done: list[int] = []
     controller.injected.connect(done.append)
     grounded: list[bool] = []
@@ -141,7 +141,7 @@ def test_polisher_fallback_emits_its_note(qapp: QApplication) -> None:
     controller, state = _controller(qapp, engine, clipboard)
     state.tone = "email"
     controller.set_polisher(
-        lambda text: PolishOutcome(text, fell_back=True, note="Ollama isn't running.")
+        lambda text, tone: PolishOutcome(text, fell_back=True, note="Ollama isn't running.")
     )
     notices: list[str] = []
     controller.notice.connect(notices.append)
@@ -183,6 +183,66 @@ def test_toggle_flow_streams_segments_and_joins(qapp: QApplication) -> None:
     assert len(engine.prompts) == 2  # two segments, never one blob
 
 
+def test_panel_session_streams_and_delivers_raw(qapp: QApplication) -> None:
+    engine = FakeEngine("hello there")
+    clipboard = InMemoryClipboard()
+    controller, _state = _controller(qapp, engine, clipboard)
+    partials: list[str] = []
+    controller.partial_transcript.connect(partials.append)
+    finished: list[str] = []
+    controller.session_finished.connect(finished.append)
+
+    controller.panel_click()
+    assert _pump_until(qapp, lambda: _state_recording(controller))
+    assert controller.session_sink == "panel"
+    controller.panel_click()
+    assert _pump_until(qapp, lambda: bool(finished))
+    assert finished == ["hello there"]
+    assert partials == ["hello there"]  # the tail segment streamed live
+    assert clipboard.get_text() is None  # panel sessions never auto-inject
+
+
+def test_panel_polish_and_inject_on_demand(qapp: QApplication) -> None:
+    engine = FakeEngine()
+    clipboard = InMemoryClipboard()
+    controller, _state = _controller(qapp, engine, clipboard)
+    controller._sleep = lambda _s: None
+    controller.set_polisher(lambda text, tone: PolishOutcome(f"[{tone}] {text}"))
+    ready: list[tuple[str, str, bool]] = []
+    controller.panel_polish_ready.connect(lambda t, tone, fb: ready.append((t, tone, fb)))
+
+    controller.request_polish("hi there", "notes")
+    assert _pump_until(qapp, lambda: bool(ready))
+    assert ready == [("[notes] hi there", "notes", False)]
+
+    restores: list[bool] = []
+
+    def restorer() -> bool:
+        restores.append(True)
+        return True
+
+    controller.set_focus_restorer(restorer)
+    done: list[int] = []
+    controller.injected.connect(done.append)
+    controller.request_inject("final text")
+    assert _pump_until(qapp, lambda: bool(done))
+    assert done == [2]
+    assert clipboard.get_text() == "final text"
+    assert restores == [True]  # focus went back to the user's app before pasting
+
+
+def test_panel_polish_verbatim_and_missing_polisher_pass_through(qapp: QApplication) -> None:
+    engine = FakeEngine()
+    clipboard = InMemoryClipboard()
+    controller, _state = _controller(qapp, engine, clipboard)
+    ready: list[tuple[str, str, bool]] = []
+    controller.panel_polish_ready.connect(lambda t, tone, fb: ready.append((t, tone, fb)))
+
+    controller.request_polish("as spoken", "verbatim")  # no polisher installed either
+    assert _pump_until(qapp, lambda: bool(ready))
+    assert ready == [("as spoken", "verbatim", False)]
+
+
 def test_injection_waits_for_modifier_release(qapp: QApplication) -> None:
     engine = FakeEngine("waited words")
     clipboard = InMemoryClipboard()
@@ -214,7 +274,7 @@ def test_verbatim_tone_skips_polisher(qapp: QApplication) -> None:
     state.tone = "verbatim"
     calls: list[str] = []
 
-    def polisher(text: str) -> PolishOutcome:
+    def polisher(text: str, tone: str) -> PolishOutcome:
         calls.append(text)
         return PolishOutcome("SHOULD NOT APPEAR")
 

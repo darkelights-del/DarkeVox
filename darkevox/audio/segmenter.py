@@ -15,8 +15,9 @@ from darkevox.audio.capture import SAMPLE_RATE
 @dataclass
 class SegmenterConfig:
     silence_rms: float = 0.010  # ~-40 dBFS; below this a block counts as silence
-    min_speech_s: float = 5.0  # never cut segments shorter than this
-    min_silence_s: float = 1.0  # a pause this long marks a cut point
+    # Tuned for live feedback: text should appear at every natural breath.
+    min_speech_s: float = 2.5  # never cut segments shorter than this
+    min_silence_s: float = 0.7  # a pause this long marks a cut point
 
 
 class PauseSegmenter:

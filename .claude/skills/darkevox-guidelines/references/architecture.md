@@ -20,15 +20,19 @@ darkevox/
     pipeline.py         # transcript -> polished text (tones, grounding, fallback)
     prompts.py          # ALL prompt templates, incl. the no-slop distillation
     llm.py              # Ollama native /api/chat + OpenRouter via openai SDK
+  update.py             # dev-mode self-update: git upstream check + ff pull
   inject/
     injector.py         # clipboard swap + Ctrl+V, typing fallback, restore
     clipboard.py        # ClipboardBackend protocol; pywin32 impl + in-memory fake
+    focus.py            # ForegroundTracker: hand focus back before panel Insert
   context/              # CORE - no Qt, no Windows imports
     provider.py         # ContextProvider protocol, GroundingChunk, NullContextProvider
   ui/
     theme.py            # design tokens + QSS builder (pure strings, testable)
     tray.py             # QSystemTrayIcon: status, tone menu, mode toggles, quit
     hud.py              # frameless always-on-top status pill
+    panel.py            # floating dictation card <-> mic pill (mouse PTT, live text)
+    interaction.py      # pure click/hold/drag interpreter for the mic (no Qt)
     settings.py         # hotkeys, models, tones, backend config dialog
     firstrun.py         # model download progress dialog
     icons.py            # QPainter-drawn icons (no binary assets)
