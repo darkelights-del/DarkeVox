@@ -1,0 +1,45 @@
+[project]
+name = "darkevox"
+version = "0.1.0"
+description = "Local-first dictation with LLM polish and a grounded knowledge base. Windows 10/11."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Lower bounds verified to exist on PyPI (2026-07). Exact pins land in
+    # phase 7 when the Windows CI build resolves the cp312-win wheel matrix.
+    "PySide6>=6.8,<7",
+    "sounddevice>=0.5,<0.6",
+    "faster-whisper>=1.1,<2",
+    "pynput>=1.8,<2",
+    "pywin32>=306; sys_platform == 'win32'",
+    "httpx>=0.28,<1",
+    "openai>=2.0,<3",
+    "keyring>=25,<27",
+    "tomli-w>=1.0,<2",
+    "numpy>=1.26",
+    "huggingface-hub>=0.30",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+darkevox = "darkevox.app:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["darkevox*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
