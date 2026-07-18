@@ -109,6 +109,13 @@ class UiConfig:
 
 
 @dataclass
+class UpdateConfig:
+    # Checks the git upstream once per launch, off the hot path. The phase 7
+    # installer will swap this for release-based updates.
+    auto_check: bool = True
+
+
+@dataclass
 class DictionaryConfig:
     terms: list[str] = field(default_factory=list)
 
@@ -121,6 +128,7 @@ class Config:
     polish: PolishConfig = field(default_factory=PolishConfig)
     inject: InjectConfig = field(default_factory=InjectConfig)
     ui: UiConfig = field(default_factory=UiConfig)
+    update: UpdateConfig = field(default_factory=UpdateConfig)
     dictionary: DictionaryConfig = field(default_factory=DictionaryConfig)
 
 

@@ -159,8 +159,10 @@ def main() -> int:
         log.info("DarkeVox is already running; exiting")
         return 0
 
+    from PySide6.QtCore import QObject, Signal
     from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
+    from darkevox import update as update_mod
     from darkevox.audio.hotkeys import HotkeyManager
     from darkevox.controller import DictationController
     from darkevox.inject.clipboard import system_clipboard
@@ -261,6 +263,36 @@ def main() -> int:
         dialog.exec()
 
     tray.settings_requested.connect(open_settings)
+
+    class _Notifier(QObject):
+        message = Signal(str)
+
+    notifier = _Notifier()
+    notifier.message.connect(lambda text: tray.notify("DarkeVox", text))
+
+    def run_update(apply: bool) -> None:
+        # Worker thread; tray access crosses back via the notifier signal.
+        def work() -> None:
+            root = update_mod.repo_root()
+            if root is None:
+                notifier.message.emit("Updates need a git install of DarkeVox.")
+                return
+            status = update_mod.check(root)
+            if not status.available:
+                if apply or not status.message.endswith("up to date."):
+                    notifier.message.emit(status.message)
+                return
+            if apply:
+                notifier.message.emit(update_mod.apply_update(root).message)
+            else:
+                notifier.message.emit(f"{status.message} Tray: Update now.")
+
+        threading.Thread(target=work, daemon=True, name="darkevox-update").start()
+
+    tray.update_requested.connect(lambda: run_update(apply=True))
+    if cfg.update.auto_check:
+        run_update(apply=False)
+
     start_hotkeys()
 
     exit_code = app.exec()

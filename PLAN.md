@@ -23,6 +23,7 @@ This branch delivers phases 0-2: skeleton, raw dictation, polish layer. The cont
 - **HUD:** frameless pill, bottom-center, fades in/out, pulses while listening, shows the polishing state and a "grounded" badge.
 - **Settings:** one dialog covering hotkeys, STT model, LLM backend, default tone, and injection method. Tray menu carries tone and mode toggles.
 - **Chunk-size tuning and the second reduce pass:** deferred to phases 4–5, as the spec allows.
+- **Updater (user amendment, post-spec):** the spec's "no auto-update in v1" originally covered everything; the user asked for live updates, so a dev-mode updater now checks the git upstream on launch and applies a fast-forward pull from the tray. Release-based auto-update for the packaged build still waits for phase 7.
 
 ## Phase gates
 

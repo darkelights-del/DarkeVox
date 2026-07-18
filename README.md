@@ -35,6 +35,14 @@ The default polish model is `qwen2.5:3b` because it's fast enough to feel instan
 
 Dictionary terms (names, project words) go in the `[dictionary]` section of the config; they seed the speech recognizer and the polish prompt so "DarkeVox" never comes out "dark vox".
 
+## Updates
+
+DarkeVox checks its git upstream once per launch (`[update] auto_check` in the config turns this off) and tells you from the tray when new commits exist; tray > Update now applies a fast-forward pull, then you restart the app. If dependencies changed in the update, rerun `pip install -e ".[dev]"` in the venv. Installer-based release updates arrive with phase 7 packaging.
+
+## API keys
+
+You don't need any. The default stack is fully local: faster-whisper for speech and Ollama for polish, both on your machine. A key only enters the picture if you switch the polish backend to OpenRouter: paste it into Settings > OpenRouter key, which stores it in Windows Credential Manager. No key ever goes into a file in this project, and don't put one in `config.toml`; the app won't read it from there.
+
 ## Known limitations
 
 - CTranslate2 accelerates on NVIDIA CUDA only. Intel iGPUs don't count; CPU int8 is the real default and `small.en` is tuned for it.

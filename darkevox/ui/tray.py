@@ -15,6 +15,7 @@ class Tray(QSystemTrayIcon):
     tone_selected = Signal(str)
     toggle_dictation = Signal()
     settings_requested = Signal()
+    update_requested = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -43,6 +44,9 @@ class Tray(QSystemTrayIcon):
             self._tone_actions[tone] = action
 
         self._menu.addSeparator()
+        update_action = QAction("Update now", self._menu)
+        update_action.triggered.connect(self.update_requested.emit)
+        self._menu.addAction(update_action)
         settings_action = QAction("Settings", self._menu)
         settings_action.triggered.connect(self.settings_requested.emit)
         self._menu.addAction(settings_action)
