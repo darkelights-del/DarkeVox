@@ -1,6 +1,6 @@
 # DarkeVox Test Plan
 
-The pytest suite (90 tests) covers every piece of pure logic and runs on any platform: config round-trips, the ring buffer, pause segmentation, the hotkey state machine, injection with fakes, prompt assembly, the polish pipeline with a fake LLM, and an offscreen end-to-end controller flow. `ruff check .` must be clean.
+The pytest suite (98 tests) covers every piece of pure logic and runs on any platform: config round-trips, the ring buffer, pause segmentation, the hotkey state machine, injection with fakes, prompt assembly, the polish pipeline with a fake LLM, and an offscreen end-to-end controller flow. `ruff check .` must be clean.
 
 What the suite cannot cover is the OS integration this app exists for. Those checks live here, run by hand on the real Windows machine. Status boxes stay unchecked until someone actually did the thing.
 

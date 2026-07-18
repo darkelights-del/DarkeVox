@@ -8,15 +8,28 @@ DarkeVox is a local-first dictation tool: [faster-whisper](https://github.com/SY
 
 ## Setup
 
-You need Windows 10/11 x64, Python 3.12, and (for polish) Ollama.
+Windows 10/11 x64. DarkeVox is not on PyPI, so `pip install darkevox` doesn't exist: it runs from a git clone, which is also what the built-in updater pulls from. In PowerShell:
 
+```powershell
+winget install -e --id Python.Python.3.12
+winget install -e --id Git.Git
+winget install -e --id Ollama.Ollama
 ```
-pip install -e .
+
+Close and reopen the terminal so PATH picks up the new tools, then:
+
+```powershell
+git clone https://github.com/darkelights-del/DarkeVox.git
+cd DarkeVox
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 ollama pull qwen2.5:3b
-darkevox
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m darkevox.app
 ```
 
-First launch downloads the speech model (`small.en`, about 484 MB) to `%LOCALAPPDATA%\DarkeVox\models\` and sits in the tray. If Ollama isn't running, dictation still works; you get the raw transcript instead of the polished one, and the status pill says so.
+The venv's python is called by full path so PowerShell's script-execution policy never gets a say. The pytest line is optional and should end `98 passed`. First launch downloads the speech model (`small.en`, about 484 MB) to `%LOCALAPPDATA%\DarkeVox\models\` and sits in the tray. If Ollama isn't running, dictation still works; you get the raw transcript instead of the polished one, and the status pill says so. If a winget ID doesn't resolve on your machine, the same installers live at python.org, git-scm.com, and ollama.com/download.
 
 ## Use
 
@@ -31,7 +44,7 @@ Pick a tone from the tray menu: **email** (leads with the point), **message** (s
 
 Config lives at `%APPDATA%\DarkeVox\config.toml`; the Settings dialog covers the common cases. API keys go to Windows Credential Manager, never into the file. Models, database, and logs live under `%LOCALAPPDATA%\DarkeVox\`.
 
-The default polish model is `qwen2.5:3b` because it's fast enough to feel instant on CPU. `qwen2.5:7b` is reserved in config for the future summarize path, where quality beats speed. To use OpenRouter instead of Ollama, switch the backend in Settings and pick a model from [openrouter.ai/models](https://openrouter.ai/models) (filter: free). The free list rotates without warning, which is exactly why no free model name ships as a default.
+The default polish model is `qwen2.5:3b` because it's fast enough to feel instant on CPU. `qwen2.5:7b` is reserved in config for the future summarize path, where quality beats speed. Any tag your Ollama can pull works in either slot (`llama3.2:3b`, `glm4:9b`, whatever comes next): change it in Settings or `config.toml`, then `ollama pull` that tag. On a CPU-only machine, a bigger polish model mostly buys latency rather than better grammar fixes; keep polish small and spend parameters on summarize. To use OpenRouter instead of Ollama, switch the backend in Settings and pick a model from [openrouter.ai/models](https://openrouter.ai/models) (filter: free). The free list rotates without warning, which is exactly why no free model name ships as a default.
 
 Dictionary terms (names, project words) go in the `[dictionary]` section of the config; they seed the speech recognizer and the polish prompt so "DarkeVox" never comes out "dark vox".
 
