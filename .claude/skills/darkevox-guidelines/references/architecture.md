@@ -4,7 +4,8 @@
 
 ```
 darkevox/
-  app.py                # entry: single-instance lock, tray, controller, Qt event loop
+  app.py                # entry: single-instance lock, first-run download, wiring, Qt loop
+  controller.py         # DictationController: hotkeys -> capture -> STT [-> polish] -> inject
   state.py              # AppState: the only mutable shared state, guarded by design
   config.py             # TOML load/save, defaults, data-dir paths, keyring access
   logging_setup.py      # rotating file log in %LOCALAPPDATA%\DarkeVox\logs + stage timers
