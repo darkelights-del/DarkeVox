@@ -83,7 +83,7 @@ class OllamaClient:
                 raise LlmError("Ollama connection failed.") from exc
             except (KeyError, ValueError) as exc:
                 raise LlmError("Ollama sent an unexpected reply.") from exc
-        raise LlmError("Ollama isn't running.") from last_connect_error
+        raise LlmError("Ollama isn't running. Start Ollama.") from last_connect_error
 
 
 class OpenRouterClient:

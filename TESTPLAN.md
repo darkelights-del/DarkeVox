@@ -1,6 +1,6 @@
 # DarkeVox Test Plan
 
-The pytest suite (98 tests) covers every piece of pure logic and runs on any platform: config round-trips, the ring buffer, pause segmentation, the hotkey state machine, injection with fakes, prompt assembly, the polish pipeline with a fake LLM, and an offscreen end-to-end controller flow. `ruff check .` must be clean.
+The pytest suite (142 tests) covers every piece of pure logic and runs on any platform: config round-trips, the ring buffer, pause segmentation, the hotkey state machine, injection with fakes, prompt assembly, the polish pipeline with a fake LLM, the append-mode draft joining, settings validation, and an offscreen end-to-end controller flow. `ruff check .` must be clean.
 
 What the suite cannot cover is the OS integration this app exists for. Those checks live here, run by hand on the real Windows machine. Status boxes stay unchecked until someone actually did the thing.
 
@@ -40,4 +40,17 @@ What the suite cannot cover is the OS integration this app exists for. Those che
 
 ## Deferred (not built yet, do not test)
 
-Cloud STT toggle (config keys exist, no code path), the grounded-dictation badge with a real knowledge base (phase 6), Compose tab (phase 3), packaging (phase 7).
+Cloud STT toggle (config keys exist, no code path), the grounded-dictation badge with a real knowledge base (phase 6), packaging (phase 7). The Compose tab was built as phase 3 and then removed on 2026-07-21: the app is voice-only, and the panel is the one surface — it is not coming back.
+
+## Redesign checks (owner, on Windows, after the 2026-07-21 v3 redesign)
+
+- [ ] The pill and card have genuinely rounded corners over any wallpaper — no cream square behind them — and both cast a soft visible shadow.
+- [ ] Double-click the pill: the card grows out of it (about a quarter second), and "hide" shrinks it back. No teleporting.
+- [ ] While recording, the wave bars in the mic ride your voice level, a ring pulses, and the status reads "Listening — 0:07" with a live count.
+- [ ] Speak, pause, speak again in one panel session, then start a second session: the new take APPENDS to the draft. A stray tap on the mic wipes nothing; "undo take" removes the last take.
+- [ ] Copy says "Copied — N words" and reverts; Insert ends in "Inserted — N words" or a clay error that stays. Nothing sticks on "inserting".
+- [ ] Tray: left-click opens/hides the panel; the menu has rounded corners, a status dot row, and the update item reads "Check for updates" until an update exists.
+- [ ] Right-click the panel: close-to-tray works, and the pill is gone until you bring it back from the tray.
+- [ ] Settings fits on screen (tabs), the Microphone picker lists your devices, Polish shows only the active backend's fields, and switching injection method applies without a restart.
+- [ ] Esc collapses the card; Ctrl+Enter inserts; Ctrl+Shift+C copies.
+- [ ] Launch a second DarkeVox: a message box says it's already running (no silent nothing).

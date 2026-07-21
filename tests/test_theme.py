@@ -30,3 +30,37 @@ def test_qss_covers_core_widgets() -> None:
     sheet = theme.qss()
     for selector in ("QMenu", "QPushButton", "QLineEdit", "QProgressBar", "QToolTip"):
         assert selector in sheet
+
+
+def test_window_background_is_opt_in_never_global() -> None:
+    """The old global QWidget fill painted opaque squares behind every
+    rounded frameless surface — the 'square everything' bug."""
+    sheet = theme.qss()
+    assert 'QWidget[role="window"]' in sheet
+    for line in sheet.splitlines():
+        stripped = line.strip()
+        assert not stripped.startswith("QWidget {"), "global QWidget fill is back"
+
+
+def test_contrast_ramp_tokens_exist_and_are_used() -> None:
+    sheet = theme.qss()
+    assert theme.TOKENS["blue_600"] == "#44739F"  # primary rest, 4.9:1 on cream
+    assert theme.TOKENS["blue_700"] == "#3A648C"  # primary pressed
+    assert theme.TOKENS["clay_600"] == "#AD5049"  # error text, 4.8:1
+    for token in ("blue_600", "blue_650", "blue_700", "clay_600"):
+        assert theme.TOKENS[token] in sheet
+
+
+def test_interactive_states_are_complete() -> None:
+    sheet = theme.qss()
+    assert "QPushButton:focus" in sheet
+    assert 'QPushButton[variant="primary"]:disabled' in sheet
+    assert 'QPushButton[variant="quiet"]:pressed' in sheet
+    assert "QLineEdit:disabled" in sheet
+    assert "QScrollBar::handle:vertical" in sheet
+
+
+def test_qss_asset_urls_render_when_paths_given() -> None:
+    sheet = theme.qss({"combo_arrow": "/tmp/a.png", "check": "/tmp/c.png"})
+    assert 'QComboBox::down-arrow { image: url("/tmp/a.png")' in sheet
+    assert "$" not in sheet

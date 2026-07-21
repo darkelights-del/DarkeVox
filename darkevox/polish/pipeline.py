@@ -92,7 +92,7 @@ class PolishPipeline:
                 tone=tone,
                 fell_back=True,
                 elapsed_ms=(time.perf_counter() - start) * 1000,
-                note=f"{exc} Raw transcript injected.",
+                note=str(exc),
             )
         except Exception:
             # The invariant outranks everything: polish never loses words,
@@ -103,7 +103,7 @@ class PolishPipeline:
                 tone=tone,
                 fell_back=True,
                 elapsed_ms=(time.perf_counter() - start) * 1000,
-                note="Polish failed. Raw transcript injected.",
+                note="Polish failed.",
             )
         text = sanitize(raw)
         if not text:
@@ -113,7 +113,7 @@ class PolishPipeline:
                 tone=tone,
                 fell_back=True,
                 elapsed_ms=(time.perf_counter() - start) * 1000,
-                note="Polish came back empty. Raw transcript injected.",
+                note="Polish came back empty.",
             )
         return PolishResult(
             text=text,

@@ -29,15 +29,24 @@ darkevox/
     provider.py         # ContextProvider protocol, GroundingChunk, NullContextProvider
   ui/
     theme.py            # design tokens + QSS builder (pure strings, testable)
-    tray.py             # QSystemTrayIcon: status, tone menu, mode toggles, quit
+    motion.py           # easing constants, retarget helper, reduce-motion gate
+    buttons.py          # AnimatedButton: self-painted states that tween
+    draft.py            # append-mode joining for the panel draft (pure, no Qt)
+    tray.py             # QSystemTrayIcon: click-to-open, status dot, tone menu
     hud.py              # frameless always-on-top status pill
-    panel.py            # floating dictation card <-> mic pill (mouse PTT, live text)
+    panel.py            # THE primary surface: card <-> pill morph, status, PTT
     interaction.py      # pure click/hold/drag interpreter for the mic (no Qt)
-    settings.py         # hotkeys, models, tones, backend config dialog
-    firstrun.py         # model download progress dialog
-    icons.py            # QPainter-drawn icons (no binary assets)
+    settings.py         # tabbed dialog: hotkeys, mic, model, backend, injection
+    firstrun.py         # branded model download dialog with retry
+    icons.py            # QPainter-drawn icons + runtime QSS glyphs (no binary assets)
 tests/                  # pytest, pure logic only, runs on any platform
 ```
+
+The app is voice-only: the panel is the primary surface (there is no main
+window; the composer was removed by owner decision 2026-07-21). Settings is a
+dialog reached from the tray or the panel header. When the phase 4-5 context
+UI lands, it gets its own surface decision then — do not resurrect a tabbed
+main window by default.
 
 ## Data flow (dictation)
 

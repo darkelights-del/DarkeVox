@@ -141,7 +141,9 @@ def test_polisher_fallback_emits_its_note(qapp: QApplication) -> None:
     controller, state = _controller(qapp, engine, clipboard)
     state.tone = "email"
     controller.set_polisher(
-        lambda text, tone: PolishOutcome(text, fell_back=True, note="Ollama isn't running.")
+        lambda text, tone: PolishOutcome(
+            text, fell_back=True, note="Ollama isn't running. Start Ollama."
+        )
     )
     notices: list[str] = []
     controller.notice.connect(notices.append)
@@ -152,7 +154,7 @@ def test_polisher_fallback_emits_its_note(qapp: QApplication) -> None:
     _pump_until(qapp, lambda: _state_recording(controller))
     controller.hold_end()
     assert _pump_until(qapp, lambda: bool(done))
-    assert notices == ["Ollama isn't running."]
+    assert notices == ["Ollama isn't running. Start Ollama. Raw transcript injected."]
     assert clipboard.get_text() == "the raw words"
 
 
@@ -209,11 +211,11 @@ def test_panel_polish_and_inject_on_demand(qapp: QApplication) -> None:
     controller._sleep = lambda _s: None
     controller.set_polisher(lambda text, tone: PolishOutcome(f"[{tone}] {text}"))
     ready: list[tuple[str, str, bool]] = []
-    controller.polish_ready.connect(lambda t, tone, fb, req: ready.append((t, tone, fb, req)))
+    controller.polish_ready.connect(lambda t, tone, fb: ready.append((t, tone, fb)))
 
     controller.request_polish("hi there", "notes")
     assert _pump_until(qapp, lambda: bool(ready))
-    assert ready == [("[notes] hi there", "notes", False, "panel")]
+    assert ready == [("[notes] hi there", "notes", False)]
 
     restores: list[bool] = []
 
@@ -236,11 +238,11 @@ def test_panel_polish_verbatim_and_missing_polisher_pass_through(qapp: QApplicat
     clipboard = InMemoryClipboard()
     controller, _state = _controller(qapp, engine, clipboard)
     ready: list[tuple[str, str, bool]] = []
-    controller.polish_ready.connect(lambda t, tone, fb, req: ready.append((t, tone, fb, req)))
+    controller.polish_ready.connect(lambda t, tone, fb: ready.append((t, tone, fb)))
 
     controller.request_polish("as spoken", "verbatim")  # no polisher installed either
     assert _pump_until(qapp, lambda: bool(ready))
-    assert ready == [("as spoken", "verbatim", False, "panel")]
+    assert ready == [("as spoken", "verbatim", False)]
 
 
 def test_injection_waits_for_modifier_release(qapp: QApplication) -> None:
@@ -290,19 +292,6 @@ def test_verbatim_tone_skips_polisher(qapp: QApplication) -> None:
     assert clipboard.get_text() == "keep me raw"
 
 
-def test_polish_requester_tag_routes_replies(qapp: QApplication) -> None:
-    engine = FakeEngine()
-    clipboard = InMemoryClipboard()
-    controller, _state = _controller(qapp, engine, clipboard)
-    controller.set_polisher(lambda text, tone: PolishOutcome(text.upper()))
-    ready: list[tuple[str, str]] = []
-    controller.polish_ready.connect(lambda t, tone, fb, req: ready.append((t, req)))
-
-    controller.request_polish("from the composer", "email", requester="compose")
-    assert _pump_until(qapp, lambda: bool(ready))
-    assert ready == [("FROM THE COMPOSER", "compose")]
-
-
 def test_tap_guard_skips_stt_and_reports_no_speech(qapp: QApplication) -> None:
     engine = FakeEngine()
     clipboard = InMemoryClipboard()
@@ -341,3 +330,41 @@ def test_dictation_timing_line_includes_stt(qapp: QApplication, caplog) -> None:
         assert _pump_until(qapp, lambda: bool(done))
     timing_lines = [r.message for r in caplog.records if r.message.startswith("dictation ")]
     assert timing_lines and "stt=" in timing_lines[0]  # the budget line keeps its STT stage
+
+
+def test_audio_level_streams_while_recording(qapp: QApplication) -> None:
+    engine = FakeEngine("level check")
+    clipboard = InMemoryClipboard()
+    cfg = Config()
+    state = AppState()
+    state.tone = "verbatim"
+    injector = Injector(clipboard, FakeKeys(), restore_delay_ms=0, sleep=lambda _s: None)
+    loud = np.full(4000, 0.16, dtype=np.float32)  # rms 0.16 = 2x the 0.08 target
+    controller = DictationController(
+        cfg,
+        state,
+        engine,
+        injector,
+        capture_factory=lambda: FakeCapture(np.ones(16000, dtype=np.float32), drains=[loud]),
+    )
+    levels: list[float] = []
+    controller.audio_level.connect(levels.append)
+    controller.hold_start()
+    assert _pump_until(qapp, lambda: bool(levels))
+    controller.hold_end()
+    assert levels[0] == 1.0  # clamped: the meter never exceeds full scale
+
+
+def test_missing_model_guard_refuses_session(qapp: QApplication) -> None:
+    engine = FakeEngine()
+    clipboard = InMemoryClipboard()
+    controller, _state = _controller(qapp, engine, clipboard)
+    controller.set_stt_ready(False)
+    errors: list[str] = []
+    controller.error.connect(errors.append)
+    recording: list[bool] = []
+    controller.recording_changed.connect(recording.append)
+    controller.hold_start()
+    assert _pump_until(qapp, lambda: bool(errors))
+    assert errors == ["Speech model missing. Relaunch DarkeVox to download it."]
+    assert recording == []  # the session never started, so no words can be lost

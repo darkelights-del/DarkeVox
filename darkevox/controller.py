@@ -22,6 +22,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from darkevox.audio.capture import SAMPLE_RATE, CaptureError, MicrophoneCapture
@@ -52,9 +53,10 @@ class DictationController(QObject):
     state_changed = Signal(str, str)  # (state, label) for HUD and tray
     partial_transcript = Signal(str, str)  # (accumulated raw text, sink it belongs to)
     session_finished = Signal(str)  # panel sessions: full raw transcript at stop
-    polish_ready = Signal(str, str, bool, str)  # (text, tone, fell_back, requester)
+    polish_ready = Signal(str, str, bool)  # (text, tone, fell_back) for the panel
     grounded_changed = Signal(bool)  # last polish used retrieved context
     recording_changed = Signal(bool)
+    audio_level = Signal(float)  # live input level 0..1 while recording
     injected = Signal(int)  # word count for the done flash
     notice = Signal(str)  # non-fatal, user-visible ("Polish timed out...")
     error = Signal(str)
@@ -79,6 +81,7 @@ class DictationController(QObject):
         self._capture_factory = capture_factory
         self._modifier_guard: Callable[[], bool] | None = None
         self._focus_restorer: Callable[[], bool] | None = None
+        self._stt_ready = True
         self._sleep: Callable[[float], None] = time.sleep
         self._capture: MicrophoneCapture | None = None
         self._segmenter: PauseSegmenter | None = None
@@ -106,6 +109,13 @@ class DictationController(QObject):
 
     def set_polisher(self, polisher: Polisher | None) -> None:
         self._polisher = polisher
+
+    def set_injector(self, injector: Injector) -> None:
+        """Settings apply live: a method change swaps the injector in place."""
+        self._injector = injector
+
+    def set_stt_ready(self, ready: bool) -> None:
+        self._stt_ready = ready
 
     def set_modifier_guard(self, guard: Callable[[], bool] | None) -> None:
         """guard() returns True while hotkey modifiers are physically held.
@@ -146,10 +156,9 @@ class DictationController(QObject):
         """Mouse click on the mic: toggle a panel session."""
         self._toggle_requested.emit("panel")
 
-    def request_polish(self, text: str, tone: str, requester: str = "panel") -> None:
-        """On-demand polish for UI surfaces; the reply carries the requester
-        tag so the panel and the composer never consume each other's results."""
-        self._jobs.put(("panel_polish", (text.strip(), tone, requester)))
+    def request_polish(self, text: str, tone: str) -> None:
+        """On-demand polish for the panel (the app's one polish surface)."""
+        self._jobs.put(("panel_polish", (text.strip(), tone)))
 
     def request_inject(self, text: str) -> None:
         self._jobs.put(("panel_inject", text))
@@ -176,6 +185,11 @@ class DictationController(QObject):
         # a hold in progress ignores toggle presses
 
     def _start_session(self, kind: str, sink: str) -> None:
+        if not self._stt_ready:
+            # Speaking into a missing model would transcribe nothing and lose
+            # the words; refuse up front with the directive message.
+            self.error.emit("Speech model missing. Relaunch DarkeVox to download it.")
+            return
         try:
             capture = self._capture_factory()
             capture.start()
@@ -232,6 +246,8 @@ class DictationController(QObject):
         if block.size == 0:
             return
         self._session_samples += block.size
+        rms = float(np.sqrt(np.mean(np.square(block))))
+        self.audio_level.emit(min(1.0, rms / 0.08))
         segment = self._segmenter.feed(block)
         if segment is not None:
             # The sink rides inside the job: reading self._session_sink later
@@ -288,15 +304,15 @@ class DictationController(QObject):
         elif kind == "panel_inject":
             self._panel_inject(payload)
 
-    def _panel_polish(self, text: str, tone: str, requester: str) -> None:
+    def _panel_polish(self, text: str, tone: str) -> None:
         if not text or tone == "verbatim" or self._polisher is None:
-            self.polish_ready.emit(text, tone, False, requester)
+            self.polish_ready.emit(text, tone, False)
             return
         outcome = self._polisher(text, tone)
         if outcome.fell_back:
             self.notice.emit(outcome.note or "Polish unavailable.")
         self.grounded_changed.emit(outcome.used_grounding)
-        self.polish_ready.emit(outcome.text, tone, outcome.fell_back, requester)
+        self.polish_ready.emit(outcome.text, tone, outcome.fell_back)
 
     def _panel_inject(self, text: str) -> None:
         if not text:
@@ -344,7 +360,8 @@ class DictationController(QObject):
             text = outcome.text
             grounded = outcome.used_grounding
             if outcome.fell_back:
-                self.notice.emit(outcome.note or "Polish unavailable. Raw transcript injected.")
+                note = outcome.note or "Polish unavailable."
+                self.notice.emit(f"{note} Raw transcript injected.")
         self.grounded_changed.emit(grounded)
         with stage(timings, "inject"):
             self._wait_for_modifier_release()

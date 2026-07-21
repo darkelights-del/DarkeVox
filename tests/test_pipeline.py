@@ -56,7 +56,6 @@ def test_llm_failure_falls_back_to_raw() -> None:
     assert result.fell_back
     assert result.text == "keep these words"
     assert "Ollama isn't running." in result.note
-    assert "Raw transcript injected." in result.note
 
 
 def test_empty_reply_falls_back_to_raw() -> None:

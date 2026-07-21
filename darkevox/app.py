@@ -65,24 +65,26 @@ def _keystrokes() -> object:
         return NullKeystrokes()
 
 
-def _ensure_model(cfg: config_mod.Config) -> bool:
+def _ensure_model(cfg: config_mod.Config) -> tuple[bool, bool]:
     """Download the STT model on first run, with an honest progress dialog.
 
-    Returns False when the user cancelled or the download failed; the app
-    still runs, dictation just reports the model as missing.
+    Returns (ready, downloaded_now). A failed attempt offers Retry in the
+    dialog; a cancel leaves the app running with dictation disabled.
     """
     from darkevox.stt import models
 
     model = cfg.stt.model
     models_root = config_mod.models_dir()
     if models.is_downloaded(model, models_root):
-        return True
+        return True, False
 
     from PySide6.QtCore import QTimer
 
     from darkevox.ui.firstrun import DownloadDialog
 
     outcome: dict[str, str | bool] = {"done": False, "error": ""}
+    dialog = DownloadDialog(model, models.APPROX_SIZE_MB.get(model, 500))
+    timer = QTimer(dialog)
 
     def run() -> None:
         try:
@@ -92,9 +94,11 @@ def _ensure_model(cfg: config_mod.Config) -> bool:
             log.exception("model download failed")
             outcome["error"] = str(exc)
 
-    thread = threading.Thread(target=run, daemon=True, name="darkevox-download")
-    dialog = DownloadDialog(model, models.APPROX_SIZE_MB.get(model, 500))
-    timer = QTimer(dialog)
+    def start() -> None:
+        outcome["done"] = False
+        outcome["error"] = ""
+        threading.Thread(target=run, daemon=True, name="darkevox-download").start()
+        timer.start()
 
     def poll() -> None:
         dialog.set_progress(models.downloaded_mb(model, models_root))
@@ -103,16 +107,16 @@ def _ensure_model(cfg: config_mod.Config) -> bool:
             dialog.accept()
         elif outcome["error"]:
             timer.stop()
-            dialog.show_error("Download failed. Check your connection and relaunch DarkeVox.")
+            dialog.show_error("Download failed. Check your connection, then Retry.")
 
     timer.setInterval(300)
     timer.timeout.connect(poll)
-    thread.start()
-    timer.start()
+    dialog.retry_requested.connect(start)
+    start()
     accepted = dialog.exec() == dialog.DialogCode.Accepted
     if not accepted:
         log.warning("model download cancelled or failed; dictation disabled this run")
-    return accepted and models.is_downloaded(model, models_root)
+    return accepted and models.is_downloaded(model, models_root), accepted
 
 
 def _build_polisher(cfg: config_mod.Config) -> object | None:
@@ -161,6 +165,16 @@ def main() -> int:
     instance = SingleInstance()
     if not instance.acquire():
         log.info("DarkeVox is already running; exiting")
+        if sys.platform == "win32":
+            # Under pythonw a silent exit reads as "nothing happened".
+            import ctypes
+
+            ctypes.windll.user32.MessageBoxW(  # type: ignore[attr-defined]
+                None,
+                "DarkeVox is already running — look for the tray icon.",
+                "DarkeVox",
+                0x40,
+            )
         return 0
 
     from PySide6.QtCore import QObject, Signal
@@ -187,7 +201,12 @@ def main() -> int:
         from PySide6.QtGui import QFont
 
         app.setFont(QFont("Segoe UI", 10))
-    app.setStyleSheet(qss())
+    from darkevox.ui import motion
+    from darkevox.ui.icons import ensure_style_assets
+
+    motion.configure(cfg.ui.reduce_motion)
+    assets = ensure_style_assets(config_mod.config_path().parent / "style")
+    app.setStyleSheet(qss(assets))
     log.info("started; config=%s log=%s", config_mod.config_path(), log_file)
 
     if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -198,7 +217,7 @@ def main() -> int:
     tray.set_status("idle")
     tray.show()
 
-    model_ready = _ensure_model(cfg)
+    model_ready, downloaded_now = _ensure_model(cfg)
     if not model_ready:
         tray.notify("DarkeVox", "Speech model missing. Relaunch to download it.")
 
@@ -227,10 +246,12 @@ def main() -> int:
     controller.set_polisher(_build_polisher(cfg))
     hud = Hud()
 
+    controller.set_stt_ready(model_ready)
+
     def on_state(state_name: str, label: str) -> None:
         auto_hide = 1600 if state_name == "done" else None
         hud.show_state(state_name, label, auto_hide_ms=auto_hide)
-        tray.set_status(label)
+        tray.set_status(label, state_name)
 
     controller.state_changed.connect(on_state)
     controller.injected.connect(hud.done)
@@ -253,26 +274,22 @@ def main() -> int:
         lambda text, sink: panel.set_partial(text) if sink == "panel" else None
     )
     controller.session_finished.connect(panel.on_session_finished)
-    controller.polish_ready.connect(
-        lambda text, tone, fb, req: panel.on_polish_ready(text, tone, fb)
-        if req == "panel"
-        else None
-    )
+    controller.polish_ready.connect(panel.on_polish_ready)
+    controller.audio_level.connect(panel.set_level)
+    controller.notice.connect(panel.on_notice)
+    controller.error.connect(panel.on_error)
+    controller.injected.connect(panel.on_inserted)
     # Same-thread direct delivery: session_sink is still this session's value.
     controller.recording_changed.connect(
         lambda rec: panel.set_recording(rec and controller.session_sink == "panel")
     )
-    tray.panel_requested.connect(panel.show_expanded)
+    panel.set_hotkey_hint(cfg.hotkeys.hold)
+    panel.visibility_changed.connect(tray.set_panel_visible)
 
-    from darkevox.ui.main_window import MainWindow
+    def toggle_panel() -> None:
+        panel.toggle_visibility()
 
-    main_window = MainWindow(controller, default_tone=state.tone)
-    controller.polish_ready.connect(
-        lambda text, tone, fb, req: main_window.on_polish_ready(text, tone, fb)
-        if req == "compose"
-        else None
-    )
-    tray.compose_requested.connect(main_window.open_compose)
+    tray.panel_requested.connect(toggle_panel)
     if cfg.ui.panel_x >= 0 and cfg.ui.panel_y >= 0:
         panel.move(cfg.ui.panel_x, cfg.ui.panel_y)
         panel.show_pill() if cfg.ui.panel_collapsed else panel.show_expanded()
@@ -293,6 +310,8 @@ def main() -> int:
 
     if model_ready:
         controller.warm_load()
+    if model_ready and downloaded_now:
+        tray.notify("DarkeVox", f"Ready. Hold {cfg.hotkeys.hold} anywhere and talk.")
 
     hotkey_slot: list[HotkeyManager] = []
 
@@ -325,6 +344,17 @@ def main() -> int:
         state.tone = cfg.polish.default_tone
         tray.set_tone(state.tone)
         controller.set_polisher(_build_polisher(cfg))
+        # Injection method applies live; a silent restart requirement reads
+        # as a broken setting.
+        controller.set_injector(
+            Injector(
+                system_clipboard(),
+                _keystrokes(),
+                method=cfg.inject.method,
+                restore_delay_ms=cfg.inject.restore_delay_ms,
+            )
+        )
+        panel.set_hotkey_hint(cfg.hotkeys.hold)
         while hotkey_slot:
             hotkey_slot.pop().stop()
         start_hotkeys()
@@ -336,29 +366,34 @@ def main() -> int:
         dialog.exec()
 
     tray.settings_requested.connect(open_settings)
+    panel.settings_requested.connect(open_settings)
 
     class _Notifier(QObject):
         message = Signal(str)
+        available = Signal(bool)
 
     notifier = _Notifier()
     notifier.message.connect(lambda text: tray.notify("DarkeVox", text))
+    notifier.available.connect(tray.set_update_available)
 
     def run_update(apply: bool) -> None:
-        # Worker thread; tray access crosses back via the notifier signal.
+        # Worker thread; tray access crosses back via the notifier signals.
         def work() -> None:
             root = update_mod.repo_root()
             if root is None:
                 notifier.message.emit("Updates need a git install of DarkeVox.")
                 return
             status = update_mod.check(root)
+            notifier.available.emit(status.available)
             if not status.available:
                 if apply or not status.message.endswith("up to date."):
                     notifier.message.emit(status.message)
                 return
             if apply:
                 notifier.message.emit(update_mod.apply_update(root).message)
+                notifier.available.emit(False)
             else:
-                notifier.message.emit(f"{status.message} Tray: Update now.")
+                notifier.message.emit(f"{status.message} Tray: install from the menu.")
 
         threading.Thread(target=work, daemon=True, name="darkevox-update").start()
 

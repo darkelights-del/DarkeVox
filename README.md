@@ -29,7 +29,7 @@ ollama pull qwen2.5:3b
 .\.venv\Scripts\python.exe -m darkevox.app
 ```
 
-The venv's python is called by full path so PowerShell's script-execution policy never gets a say. The pytest line is optional and should end `98 passed`. First launch downloads the speech model (`small.en`, about 484 MB) to `%LOCALAPPDATA%\DarkeVox\models\` and sits in the tray. If Ollama isn't running, dictation still works; you get the raw transcript instead of the polished one, and the status pill says so. If a winget ID doesn't resolve on your machine, the same installers live at python.org, git-scm.com, and ollama.com/download.
+The venv's python is called by full path so PowerShell's script-execution policy never gets a say. The pytest line is optional and should end `142 passed`. First launch downloads the speech model (`small.en`, about 484 MB) to `%LOCALAPPDATA%\DarkeVox\models\` and sits in the tray. If Ollama isn't running, dictation still works; you get the raw transcript instead of the polished one, and the status pill says so. If a winget ID doesn't resolve on your machine, the same installers live at python.org, git-scm.com, and ollama.com/download.
 
 ## Use
 
