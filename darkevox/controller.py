@@ -354,9 +354,11 @@ class DictationController(QObject):
             self._sleep(0.03)
 
     def _finish(self, text: str, timings: dict[str, float]) -> None:
-        # A newer recording owns the HUD; this dictation still injects, but its
-        # progress/done signals stay quiet instead of clobbering "listening".
-        quiet = self._state.recording
+        # A newer INJECT recording owns the HUD; this dictation still injects,
+        # but its progress/done signals stay quiet instead of clobbering
+        # "listening". Panel sessions never drive the HUD, so they must not
+        # suppress the terminal state either or the HUD strands mid-flight.
+        quiet = self._state.recording and self._session_sink == "inject"
         if not text:
             if not quiet:
                 self.state_changed.emit(status.NO_SPEECH, status.no_speech())
@@ -379,7 +381,7 @@ class DictationController(QObject):
         log.info("dictation %s", format_timings(timings))
         if not report.ok:
             self.error.emit(report.note or "Injection failed.")
-        elif self._state.recording:
+        elif self._state.recording and self._session_sink == "inject":
             log.info("dictation finished during a new recording; HUD flash skipped")
         else:
             count = len(text.split())

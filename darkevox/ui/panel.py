@@ -468,7 +468,13 @@ class Panel(QWidget):
         self.visibility_changed.emit(False)
 
     def toggle_visibility(self) -> None:
-        if self.isVisible() and float(self._fade.endValue() or 1.0) != 0.0:
+        # endValue() of 0.0 is falsy: test the running fade explicitly or a
+        # tray click during the close fade re-closes instead of reopening.
+        closing = (
+            self._fade.state() == QPropertyAnimation.State.Running
+            and float(self._fade.endValue()) == 0.0
+        )
+        if self.isVisible() and not closing:
             self.close_to_tray()
         else:
             self.show_panel()
@@ -520,6 +526,15 @@ class Panel(QWidget):
 
     def hideEvent(self, event: object) -> None:  # Qt override
         self._poll.stop()
+        self._listen_timer.stop()
+        if self._live:
+            # Never strand a hot microphone behind a hidden window: a hidden
+            # panel can't receive the mouse release that would end the take.
+            if self._mic._interpreter.holding:
+                self._mic._hold_timer.stop()
+                self._mic._interpreter.cancel()  # ends the hold session
+            else:
+                self._controller.panel_click()  # ends the toggle session
         super().hideEvent(event)
 
     def contextMenuEvent(self, event: object) -> None:  # Qt override
@@ -570,6 +585,10 @@ class Panel(QWidget):
     # ---- controller-facing slots (wired in app.py) ----
 
     def set_recording(self, recording: bool) -> None:
+        if recording == self._live:
+            # Hotkey (inject-sink) sessions arrive here as False; without
+            # this gate they'd stamp "Transcribing…" over a resting panel.
+            return
         self._live = recording
         self._mic.set_recording(recording)
         self._raw.setReadOnly(recording)
@@ -623,6 +642,9 @@ class Panel(QWidget):
         self._pending_note = note
 
     def on_error(self, message: str) -> None:
+        # A polish that died mid-flight leaves the dim effect installed;
+        # clearing it here is a safe no-op otherwise.
+        self._polished.setGraphicsEffect(None)
         self._set_status(status.ERROR, message)
 
     def on_inserted(self, words: int) -> None:

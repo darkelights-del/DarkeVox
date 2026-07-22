@@ -54,3 +54,6 @@ Cloud STT toggle (config keys exist, no code path), the grounded-dictation badge
 - [ ] Settings fits on screen (tabs), the Microphone picker lists your devices, Polish shows only the active backend's fields, and switching injection method applies without a restart.
 - [ ] Esc closes the card to the tray; Ctrl+Enter inserts; Ctrl+Shift+C copies.
 - [ ] Launch a second DarkeVox: a message box says it's already running (no silent nothing).
+- [ ] With the panel open, hold the hotkey in another app: the panel stays on "Ready" (it must NOT flip to "Transcribing…" for keyboard dictations).
+- [ ] Hold the mic and press Esc mid-hold: the recording ends with the panel (check the tray icon drops the recording badge) — no invisible hot mic.
+- [ ] CPU watch: record in the panel for 60 s and watch Task Manager — the pulse/level animation should stay in single-digit CPU. If it runs hot, report it (the card's drop shadow re-blurs per animation frame; a cheaper painted shadow is the planned fix).
