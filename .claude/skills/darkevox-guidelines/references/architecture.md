@@ -32,9 +32,10 @@ darkevox/
     motion.py           # easing constants, retarget helper, reduce-motion gate
     buttons.py          # AnimatedButton: self-painted states that tween
     draft.py            # append-mode joining for the panel draft (pure, no Qt)
+    status.py           # THE status vocabulary: states, dot colors, label copy
     tray.py             # QSystemTrayIcon: click-to-open, status dot, tone menu
     hud.py              # frameless always-on-top status pill
-    panel.py            # THE primary surface: card <-> pill morph, status, PTT
+    panel.py            # THE primary surface: one card, status, PTT; hides to tray
     interaction.py      # pure click/hold/drag interpreter for the mic (no Qt)
     settings.py         # tabbed dialog: hotkeys, mic, model, backend, injection
     firstrun.py         # branded model download dialog with retry

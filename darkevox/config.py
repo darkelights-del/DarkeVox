@@ -120,7 +120,8 @@ class UiConfig:
     # Panel geometry persists across launches; -1 means "not placed yet".
     panel_x: int = -1
     panel_y: int = -1
-    panel_collapsed: bool = True
+    # Closed to tray when you quit -> stays closed next launch.
+    panel_hidden: bool = False
     # Turns every animation into an instant set; also honored automatically
     # when Windows' "Show animations" accessibility setting is off.
     reduce_motion: bool = False

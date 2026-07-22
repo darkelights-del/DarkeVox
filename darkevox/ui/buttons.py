@@ -20,6 +20,7 @@ from darkevox.ui.theme import (
     DUR_RELEASE,
     FONT_CAPTION_PX,
     RADIUS_CONTROL,
+    RADIUS_SM,
     TOKENS,
 )
 
@@ -140,7 +141,7 @@ class AnimatedButton(QPushButton):
             painter.scale(self._scale, self._scale)
             painter.translate(-center)
         *_, border = self._colors()
-        radius = RADIUS_CONTROL if self._variant != "chip" else RADIUS_CONTROL - 2
+        radius = RADIUS_CONTROL if self._variant != "chip" else RADIUS_SM
         if self.hasFocus():
             focus = _T["ink_900"] if self._variant == "primary" else _T["blue_500"]
             painter.setPen(QPen(QColor(focus), 1))

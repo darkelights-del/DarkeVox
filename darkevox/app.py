@@ -248,16 +248,20 @@ def main() -> int:
 
     controller.set_stt_ready(model_ready)
 
+    from darkevox.ui import status
+
     def on_state(state_name: str, label: str) -> None:
-        auto_hide = 1600 if state_name == "done" else None
-        hud.show_state(state_name, label, auto_hide_ms=auto_hide)
+        hud.show_state(state_name, label, auto_hide_ms=status.AUTO_HIDE.get(state_name))
         tray.set_status(label, state_name)
 
     controller.state_changed.connect(on_state)
     controller.injected.connect(hud.done)
-    controller.notice.connect(hud.error)
+    controller.notice.connect(hud.notice)
+    controller.notice.connect(lambda _n: tray.set_status(status.fallback(), status.FALLBACK))
     controller.error.connect(hud.error)
     controller.error.connect(lambda message: tray.notify("DarkeVox", message))
+    controller.error.connect(lambda message: tray.set_status(message, status.ERROR))
+    controller.audio_level.connect(hud.set_level)
     controller.recording_changed.connect(tray.set_recording)
 
     tray.set_tone(state.tone)
@@ -292,10 +296,12 @@ def main() -> int:
     tray.panel_requested.connect(toggle_panel)
     if cfg.ui.panel_x >= 0 and cfg.ui.panel_y >= 0:
         panel.move(cfg.ui.panel_x, cfg.ui.panel_y)
-        panel.show_pill() if cfg.ui.panel_collapsed else panel.show_expanded()
+        if not cfg.ui.panel_hidden:
+            panel.show_panel()
     else:
+        # First run: visible, bottom-right, so the panel gets discovered.
+        panel.show_panel()
         screen = app.primaryScreen()
-        panel.show_pill()
         if screen is not None:
             area = screen.availableGeometry()
             panel.move(area.right() - panel.width() - 24, area.bottom() - panel.height() - 24)
@@ -303,7 +309,7 @@ def main() -> int:
     def save_panel_state() -> None:
         cfg.ui.panel_x = panel.x()
         cfg.ui.panel_y = panel.y()
-        cfg.ui.panel_collapsed = panel.collapsed()
+        cfg.ui.panel_hidden = not panel.isVisible()
         config_mod.save(cfg)
 
     app.aboutToQuit.connect(save_panel_state)

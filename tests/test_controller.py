@@ -308,7 +308,7 @@ def test_tap_guard_skips_stt_and_reports_no_speech(qapp: QApplication) -> None:
     controller.hold_start()
     _pump_until(qapp, lambda: _state_recording(controller))
     controller.hold_end()
-    assert _pump_until(qapp, lambda: ("done", "no speech") in states)
+    assert _pump_until(qapp, lambda: ("no_speech", "No speech heard") in states)
     assert engine.prompts == []  # the tap never reached the STT engine
     assert clipboard.get_text() is None
 

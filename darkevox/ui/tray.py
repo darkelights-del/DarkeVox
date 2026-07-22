@@ -2,44 +2,22 @@
 
 The tray is the app's front door: a left-click opens the panel, the menu
 opens with a glanceable status row (dot + label), and the update action
-tells the truth about whether an update exists. Menus are translucent and
-frameless so their rounded corners are real, with the one app shadow.
+tells the truth about whether an update exists. Menus stay stock QMenu:
+mutating a QMenu's window flags recreates its native popup window and
+silently breaks right-click after first use (field-reported). QSS styles
+them; Windows 11 rounds popup corners natively.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QActionGroup, QColor
-from PySide6.QtWidgets import QGraphicsDropShadowEffect, QMenu, QSystemTrayIcon
+from PySide6.QtCore import Signal
+from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
 from darkevox import __version__
 from darkevox.config import TONES
 from darkevox.ui.icons import dot_pixmap, tray_icon
-from darkevox.ui.theme import SHADOW_BLUR, SHADOW_DY, SHADOW_RGBA
-
-_STATUS_DOTS = {
-    "listening": "blue_300",
-    "transcribing": "blue_400",
-    "polishing": "honey_300",
-    "done": "sage_300",
-    "error": "clay_400",
-}
-
-
-def _round_menu(menu: QMenu) -> None:
-    """Real rounded corners: without translucency the QSS radius paints
-    inside an opaque square popup window."""
-    menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-    menu.setWindowFlags(
-        menu.windowFlags()
-        | Qt.WindowType.FramelessWindowHint
-        | Qt.WindowType.NoDropShadowWindowHint
-    )
-    shadow = QGraphicsDropShadowEffect(menu)
-    shadow.setBlurRadius(SHADOW_BLUR)
-    shadow.setOffset(0, SHADOW_DY)
-    shadow.setColor(QColor(*SHADOW_RGBA))
-    menu.setGraphicsEffect(shadow)
+from darkevox.ui.status import DOTS, READY, ready
 
 
 class Tray(QSystemTrayIcon):
@@ -56,8 +34,7 @@ class Tray(QSystemTrayIcon):
         self.setToolTip(f"DarkeVox {__version__}")
         # setContextMenu does not take ownership; keep the menu referenced.
         self._menu = QMenu()
-        _round_menu(self._menu)
-        self._status = QAction("idle", self._menu)
+        self._status = QAction(ready(), self._menu)
         self._status.setEnabled(False)
         self._menu.addAction(self._status)
         self._menu.addSeparator()
@@ -71,7 +48,6 @@ class Tray(QSystemTrayIcon):
         self._menu.addAction(toggle_action)
 
         tone_menu = self._menu.addMenu("Tone")
-        _round_menu(tone_menu)
         self._tone_group = QActionGroup(tone_menu)
         self._tone_actions: dict[str, QAction] = {}
         for tone in TONES:
@@ -101,10 +77,9 @@ class Tray(QSystemTrayIcon):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             self.panel_requested.emit()
 
-    def set_status(self, text: str, state: str = "") -> None:
+    def set_status(self, text: str, state: str = READY) -> None:
         self._status.setText(text)
-        dot = _STATUS_DOTS.get(state)
-        self._status.setIcon(dot_pixmap(dot) if dot else dot_pixmap("ink_400"))
+        self._status.setIcon(dot_pixmap(DOTS.get(state, DOTS[READY])))
         self.setToolTip(f"DarkeVox {__version__} — {text}")
 
     def set_panel_visible(self, visible: bool) -> None:

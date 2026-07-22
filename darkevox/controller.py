@@ -32,6 +32,7 @@ from darkevox.inject.injector import Injector
 from darkevox.logging_setup import format_timings, stage
 from darkevox.state import AppState
 from darkevox.stt.engine import SttEngine, build_initial_prompt
+from darkevox.ui import status
 
 log = logging.getLogger(__name__)
 
@@ -88,6 +89,8 @@ class DictationController(QObject):
         self._session_kind: str | None = None  # hold | toggle
         self._session_sink: str = "inject"
         self._session_samples = 0  # main thread; total audio captured this session
+        self._listen_started = 0.0  # main thread; anchors the live duration label
+        self._listen_shown_s = 0
         self._segments: list[str] = []  # touched only by the worker thread
         self._session_stt_ms = 0.0  # worker thread; STT time accumulated this session
         self._polisher: Polisher | None = None
@@ -178,8 +181,6 @@ class DictationController(QObject):
     def _on_toggle(self, sink: str) -> None:
         if self._session_kind is None:
             self._start_session("toggle", sink)
-            if self._session_kind == "toggle" and sink == "inject":
-                self.state_changed.emit("listening", "listening (toggle)")
         elif self._session_kind == "toggle":
             self._end_session()
         # a hold in progress ignores toggle presses
@@ -202,10 +203,12 @@ class DictationController(QObject):
         self._session_kind = kind
         self._session_sink = sink
         self._session_samples = 0
+        self._listen_started = time.monotonic()
+        self._listen_shown_s = 0
         self._drain_timer.start()
         self._set_recording(True)
         if sink == "inject":
-            self.state_changed.emit("listening", "listening")
+            self.state_changed.emit(status.LISTENING, status.listening(0))
 
     def _end_session(self) -> None:
         self._drain_timer.stop()
@@ -227,7 +230,7 @@ class DictationController(QObject):
             if sink == "panel":
                 self.session_finished.emit("")
             else:
-                self.state_changed.emit("done", "no speech")
+                self.state_changed.emit(status.NO_SPEECH, status.no_speech())
             return
         segment = segmenter.feed(tail) if tail.size else None
         if segment is not None:
@@ -236,12 +239,19 @@ class DictationController(QObject):
         if remainder is not None:
             self._jobs.put(("segment", (remainder, sink)))
         if sink == "inject":
-            self.state_changed.emit("transcribing", "transcribing")
+            self.state_changed.emit(status.TRANSCRIBING, status.transcribing())
         self._jobs.put(("finalize", sink))
 
     def _drain_live_audio(self) -> None:
         if self._capture is None or self._segmenter is None:
             return
+        if self._session_sink == "inject":
+            # The HUD's listening heartbeat: same string the panel shows,
+            # re-emitted once per whole second.
+            elapsed = int(time.monotonic() - self._listen_started)
+            if elapsed != self._listen_shown_s:
+                self._listen_shown_s = elapsed
+                self.state_changed.emit(status.LISTENING, status.listening(elapsed))
         block = self._capture.drain()
         if block.size == 0:
             return
@@ -349,12 +359,12 @@ class DictationController(QObject):
         quiet = self._state.recording
         if not text:
             if not quiet:
-                self.state_changed.emit("done", "no speech")
+                self.state_changed.emit(status.NO_SPEECH, status.no_speech())
             return
         grounded = False
         if self._polisher is not None and self._state.tone != "verbatim":
             if not quiet:
-                self.state_changed.emit("polishing", "polishing")
+                self.state_changed.emit(status.POLISHING, status.polishing(self._state.tone))
             with stage(timings, "polish"):
                 outcome = self._polisher(text, self._state.tone)
             text = outcome.text
@@ -372,4 +382,8 @@ class DictationController(QObject):
         elif self._state.recording:
             log.info("dictation finished during a new recording; HUD flash skipped")
         else:
-            self.injected.emit(len(text.split()))
+            count = len(text.split())
+            # injected first (the HUD swell keys on entering the state),
+            # then state_changed so the tray reaches a terminal state too.
+            self.injected.emit(count)
+            self.state_changed.emit(status.INSERTED, status.inserted(count))

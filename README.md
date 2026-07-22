@@ -29,7 +29,7 @@ ollama pull qwen2.5:3b
 .\.venv\Scripts\python.exe -m darkevox.app
 ```
 
-The venv's python is called by full path so PowerShell's script-execution policy never gets a say. The pytest line is optional and should end `142 passed`. First launch downloads the speech model (`small.en`, about 484 MB) to `%LOCALAPPDATA%\DarkeVox\models\` and sits in the tray. If Ollama isn't running, dictation still works; you get the raw transcript instead of the polished one, and the status pill says so. If a winget ID doesn't resolve on your machine, the same installers live at python.org, git-scm.com, and ollama.com/download.
+The venv's python is called by full path so PowerShell's script-execution policy never gets a say. The pytest line is optional and should end `146 passed`. First launch downloads the speech model (`small.en`, about 484 MB) to `%LOCALAPPDATA%\DarkeVox\models\` and sits in the tray. If Ollama isn't running, dictation still works; you get the raw transcript instead of the polished one, and the status pill says so. If a winget ID doesn't resolve on your machine, the same installers live at python.org, git-scm.com, and ollama.com/download.
 
 ## Use
 
@@ -40,7 +40,7 @@ The venv's python is called by full path so PowerShell's script-execution policy
 
 Pick a tone from the tray menu: **email** (leads with the point), **message** (short, casual), **notes** (terse lines), **verbatim** (raw transcript, no LLM, no network). The polish step never invents content; it cleans what you said and obeys spoken commands like "new paragraph" and "scratch that".
 
-There's also a mouse-first way in: the **panel**, a draggable mic pill floating above your windows (tray > Open panel, or double-click the pill to expand). Click the mic to start and stop, or press-and-hold it to talk. Your words stream into an editable "Heard" field at each pause, the tone buttons polish them (edit either field by hand whenever you like), Copy puts the result on the clipboard, and Insert hands focus back to the app you were in and pastes it there. The panel remembers where you left it.
+There's also a mouse-first way in: the **panel**, a floating card that opens with a click on the tray icon (drag it by its header). Click the mic to start and stop, or press-and-hold it to talk. Your words BUILD UP in an editable "Heard" field — each take appends to your draft instead of replacing it — the tone chips polish the draft (edit either field by hand whenever you like), Copy puts the result on the clipboard, and Insert hands focus back to the app you were in and pastes it there. Esc or "hide" closes it to the tray; the panel remembers its spot and whether you left it open.
 
 ## Configuration
 
@@ -60,7 +60,7 @@ Dictionary terms (names, project words) go in the `[dictionary]` section of the 
 
 ## Updates
 
-DarkeVox checks its git upstream once per launch (`[update] auto_check` in the config turns this off) and tells you from the tray when new commits exist; tray > Update now applies a fast-forward pull, then you restart the app. If dependencies changed in the update, rerun `pip install -e ".[dev]"` in the venv. Installer-based release updates arrive with phase 7 packaging.
+DarkeVox checks its git upstream once per launch (`[update] auto_check` in the config turns this off) and tells you from the tray when new commits exist; the tray item flips to "Update available — install", and clicking it applies a fast-forward pull, then you restart the app. If dependencies changed in the update, rerun `pip install -e ".[dev]"` in the venv. Installer-based release updates arrive with phase 7 packaging.
 
 ## API keys
 

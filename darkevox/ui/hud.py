@@ -15,7 +15,9 @@ from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer, QVarian
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QGraphicsDropShadowEffect, QWidget
 
-from darkevox.ui import motion
+from darkevox.ui import motion, status
+from darkevox.ui.icons import draw_mark
+from darkevox.ui.status import DOTS, PULSING
 from darkevox.ui.theme import (
     DUR_ENTER,
     DUR_EXIT,
@@ -23,6 +25,7 @@ from darkevox.ui.theme import (
     FONT_BODY_PX,
     FONT_CAPTION_PX,
     PULSE_MS,
+    RADIUS_CARD,
     SHADOW_BLUR,
     SHADOW_DY,
     SHADOW_MARGIN,
@@ -30,16 +33,9 @@ from darkevox.ui.theme import (
     TOKENS,
 )
 
-_STATE_DOTS = {
-    "listening": "blue_300",
-    "transcribing": "blue_400",
-    "polishing": "honey_300",
-    "done": "sage_300",
-    "error": "clay_400",
-}
-
-_HEIGHT = 36
+_HEIGHT = 44
 _PAD = 16
+_MARK = 28
 _DOT = 8
 _GAP = 8
 _BADGE_H = 20
@@ -69,6 +65,8 @@ class Hud(QWidget):
         self._grounded = False
         self._dot_opacity = 1.0
         self._dot_swell = 1.0
+        self._level = 0.0
+        self._level_anim = motion.make_anim(self, 150, self._on_level)
         self._font = QFont()
         self._font.setPixelSize(FONT_BODY_PX)
         self._badge_font = QFont()
@@ -113,11 +111,11 @@ class Hud(QWidget):
         grounded: bool = False,
         auto_hide_ms: int | None = None,
     ) -> None:
-        entered_done = state == "done" and self._state != "done"
+        entered_done = state == status.INSERTED and self._state != status.INSERTED
         self._state = state
         self._label = label
         self._grounded = grounded
-        if state == "listening":
+        if state in PULSING:
             if self._pulse.state() != QVariantAnimation.State.Running and motion.enabled():
                 self._pulse.start()
         else:
@@ -158,11 +156,22 @@ class Hud(QWidget):
             self.setWindowOpacity(1.0)
 
     def done(self, words: int) -> None:
-        label = f"{words} word" if words == 1 else f"{words} words"
-        self.show_state("done", label, auto_hide_ms=1600)
+        self.show_state(
+            status.INSERTED,
+            status.inserted(words),
+            auto_hide_ms=status.AUTO_HIDE[status.INSERTED],
+        )
+
+    def notice(self, message: str) -> None:
+        """A fallback is a warning that kept the words, not an error."""
+        self.show_state(
+            status.FALLBACK, message, auto_hide_ms=status.AUTO_HIDE[status.FALLBACK]
+        )
 
     def error(self, message: str) -> None:
-        self.show_state("error", message, auto_hide_ms=4000)
+        self.show_state(
+            status.ERROR, message, auto_hide_ms=status.AUTO_HIDE[status.ERROR]
+        )
 
     def dismiss(self) -> None:
         self._pulse.stop()
@@ -180,6 +189,15 @@ class Hud(QWidget):
         self._dot_opacity = float(value)
         self.update()
 
+    def set_level(self, level: float) -> None:
+        """The mark's wave bars ride the live input level, like the panel mic."""
+        if self._state in PULSING and self.isVisible():
+            motion.retarget(self._level_anim, self._level, max(0.0, min(1.0, level)))
+
+    def _on_level(self, value: object) -> None:
+        self._level = float(value)  # type: ignore[arg-type]
+        self.update()
+
     def _on_swell(self, value: object) -> None:
         self._dot_swell = float(value)  # type: ignore[arg-type]
         self.update()
@@ -193,7 +211,7 @@ class Hud(QWidget):
         label_px = min(
             QFontMetrics(self._font).horizontalAdvance(self._label), _MAX_LABEL_PX
         )
-        width = _PAD + _DOT + _GAP + label_px
+        width = _PAD + _MARK + _GAP + _DOT + _GAP + label_px
         if self._grounded:
             width += _GAP + self._badge_width()
         return width + _PAD
@@ -227,22 +245,36 @@ class Hud(QWidget):
         pill = self.rect().adjusted(
             SHADOW_MARGIN, SHADOW_MARGIN, -SHADOW_MARGIN, -SHADOW_MARGIN
         )
+        # Card material, card radius: the HUD is the panel's sibling.
         painter.setPen(QPen(QColor(TOKENS["cream_200"]), 1))
         painter.setBrush(QColor(TOKENS["cream_50"]))
-        painter.drawRoundedRect(pill, _HEIGHT / 2, _HEIGHT / 2)
+        painter.drawRoundedRect(pill, RADIUS_CARD, RADIUS_CARD)
 
-        dot_color = QColor(TOKENS[_STATE_DOTS.get(self._state, "blue_300")])
+        listening = self._state in PULSING
+        mark_x = pill.left() + _PAD
+        mark_y = pill.center().y() - _MARK // 2 + 1
+        painter.save()
+        painter.translate(mark_x, mark_y)
+        draw_mark(
+            painter,
+            _MARK,
+            recording=listening,
+            level=self._level if listening else None,
+        )
+        painter.restore()
+
+        dot_color = QColor(TOKENS[DOTS.get(self._state, "blue_300")])
         dot_color.setAlphaF(self._dot_opacity)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(dot_color)
         dot = _DOT * self._dot_swell
-        dot_x = pill.left() + _PAD + (_DOT - dot) / 2
+        dot_x = mark_x + _MARK + _GAP + (_DOT - dot) / 2
         dot_y = pill.center().y() - dot / 2 + 1
         painter.drawEllipse(int(dot_x), int(dot_y), int(dot), int(dot))
 
         painter.setFont(self._font)
         painter.setPen(QColor(TOKENS["ink_900"]))
-        text_x = pill.left() + _PAD + _DOT + _GAP
+        text_x = mark_x + _MARK + _GAP + _DOT + _GAP
         painter.drawText(
             text_x,
             pill.top(),

@@ -1,11 +1,12 @@
 """The floating dictation panel: live transcript, editable polish, mouse PTT.
 
-A frameless always-on-top card that collapses into a mic pill; the two
-states morph into each other (240 ms out / 180 ms back, OutQuart) instead
-of teleporting. The mic is the meter: its wave bars ride the live input
-level, and a pulse ring breathes while recording. Voice BUILDS on the
-draft (darkevox.ui.draft) — a new take appends, never replaces, and an
-accidental tap can't wipe words.
+One big frameless always-on-top card — no minimized state. It fades in
+(90 ms) and closes to the tray (150 ms fade), exactly like the HUD, and
+reopens from a tray click. The mic is the meter: its wave bars ride the
+live input level and a pulse ring breathes while recording. Voice BUILDS
+on the draft (darkevox.ui.draft) — a new take appends, never replaces,
+and an accidental tap can't wipe words. Status copy comes from
+darkevox.ui.status, the one vocabulary every surface shares.
 
 Spec: darkevox-ui-style (Components > Panel). All heavy work stays on the
 controller's worker thread; this file only paints and forwards.
@@ -44,20 +45,19 @@ from PySide6.QtWidgets import (
     QLabel,
     QMenu,
     QPlainTextEdit,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from darkevox.inject.focus import ForegroundTracker
-from darkevox.ui import motion
+from darkevox.ui import motion, status
 from darkevox.ui.buttons import AnimatedButton
 from darkevox.ui.draft import Draft
-from darkevox.ui.icons import draw_mark
+from darkevox.ui.icons import _draw_mic_glyph
 from darkevox.ui.interaction import DRAG_CANCEL_PX, HOLD_MS, PressHoldInterpreter
 from darkevox.ui.theme import (
-    DUR_PANEL_CLOSE,
-    DUR_PANEL_OPEN,
+    DUR_ENTER,
+    DUR_EXIT,
     DUR_PRESS,
     DUR_RELEASE,
     DUR_SETTLE,
@@ -71,18 +71,8 @@ from darkevox.ui.theme import (
 )
 
 _CARD_WIDTH = 380
-_PILL = 56
+_MIC = 56
 _TONES = ("email", "message", "notes", "verbatim")
-
-# Status dot colors share the HUD's vocabulary so every surface speaks it.
-_STATE_DOTS = {
-    "listening": "blue_300",
-    "transcribing": "blue_400",
-    "polishing": "honey_300",
-    "inserted": "sage_300",
-    "fallback": "honey_300",
-    "error": "clay_400",
-}
 
 
 def _overline(text: str) -> QLabel:
@@ -91,23 +81,23 @@ def _overline(text: str) -> QLabel:
     return label
 
 
-class _MicControl(QWidget):
-    """Shared mouse logic and living paint state for the mic.
+class _MicButton(QWidget):
+    """The card's round mic: click toggles, hold is push-to-talk.
 
-    Click, hold, drag; press scale, hover tint, recording pulse, and the
-    live level that scales the wave bars. Loops stop whenever the widget
-    hides so nothing ticks invisibly.
+    Sliding off the button (>6 px) cancels the gesture. Press scale,
+    hover tint, recording pulse ring, and the live level that scales the
+    wave bars all live here; loops stop whenever the widget hides.
     """
 
-    def __init__(self, controller: Any, draggable: bool, on_click: Any = None) -> None:
+    def __init__(self, controller: Any) -> None:
         super().__init__()
         self._controller = controller
-        self._draggable = draggable
         self.recording = False
+        self.setFixedSize(_MIC, _MIC)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self._interpreter = PressHoldInterpreter(
-            on_click=on_click or controller.panel_click,
+            on_click=controller.panel_click,
             on_hold_start=controller.panel_press,
             on_hold_end=controller.panel_release,
         )
@@ -116,14 +106,15 @@ class _MicControl(QWidget):
         self._hold_timer.setInterval(HOLD_MS)
         self._hold_timer.timeout.connect(self._interpreter.hold_elapsed)
         self._press_pos: QPoint | None = None
-        self._drag_offset: QPoint | None = None
-        self._dragging = False
+        self._cancelled = False
 
         self._scale = 1.0
         self._level = 0.0
         self._pulse_v = 0.0
+        self._bg = QColor(TOKENS["blue_400"])
         self._scale_anim = motion.make_anim(self, DUR_PRESS, self._on_scale)
         self._level_anim = motion.make_anim(self, 150, self._on_level)
+        self._bg_anim = motion.make_anim(self, 150, self._on_bg)
         self._pulse = QVariantAnimation(self)
         self._pulse.setDuration(PULSE_MS)
         self._pulse.setStartValue(0.0)
@@ -141,6 +132,7 @@ class _MicControl(QWidget):
         if not recording:
             self._level = 0.0
             self._level_anim.stop()
+        self._retint()
         self.update()
 
     def set_level(self, level: float) -> None:
@@ -156,6 +148,16 @@ class _MicControl(QWidget):
             self._pulse.stop()
             self._pulse_v = 0.0
 
+    def _target_bg(self) -> QColor:
+        if self.recording:
+            return QColor(TOKENS["blue_500"])
+        if self.underMouse():
+            return QColor(TOKENS["blue_300"])
+        return QColor(TOKENS["blue_400"])
+
+    def _retint(self) -> None:
+        motion.retarget(self._bg_anim, QColor(self._bg), self._target_bg(), 150)
+
     def _on_scale(self, value: object) -> None:
         self._scale = float(value)  # type: ignore[arg-type]
         self.update()
@@ -168,6 +170,11 @@ class _MicControl(QWidget):
         self._pulse_v = float(value)  # type: ignore[arg-type]
         self.update()
 
+    def _on_bg(self, value: object) -> None:
+        if isinstance(value, QColor):
+            self._bg = value
+            self.update()
+
     def showEvent(self, event: object) -> None:  # Qt override
         super().showEvent(event)
         self._sync_pulse()
@@ -177,169 +184,63 @@ class _MicControl(QWidget):
         self._pulse_v = 0.0
         super().hideEvent(event)
 
-    # ---- paint helpers ----
-
-    def _paint_setup(self, painter: QPainter) -> None:
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        if self._scale != 1.0:
-            center = self.rect().center()
-            painter.translate(center)
-            painter.scale(self._scale, self._scale)
-            painter.translate(-center)
-
-    def _pulse_pen(self) -> QPen | None:
-        if not self.recording or self._pulse_v <= 0.01:
-            return None
-        color = QColor(TOKENS["blue_300"])
-        color.setAlphaF(0.25 + 0.55 * self._pulse_v)
-        return QPen(color, 2)
-
     # ---- mouse ----
 
     def enterEvent(self, event: object) -> None:  # Qt override
-        self.update()
+        self._retint()
         super().enterEvent(event)
 
     def leaveEvent(self, event: object) -> None:  # Qt override
-        self.update()
+        self._retint()
         super().leaveEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # Qt override
         if event.button() != Qt.MouseButton.LeftButton:
             return
         self._press_pos = event.globalPosition().toPoint()
-        self._drag_offset = self._press_pos - self.window().frameGeometry().topLeft()
-        self._dragging = False
+        self._cancelled = False
         self._interpreter.press()
         self._hold_timer.start()
         motion.retarget(self._scale_anim, self._scale, 0.96, DUR_PRESS)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # Qt override
-        if self._press_pos is None:
+        if self._press_pos is None or self._cancelled:
             return
         pos = event.globalPosition().toPoint()
-        if not self._dragging and (pos - self._press_pos).manhattanLength() > DRAG_CANCEL_PX:
-            self._dragging = True
+        if (pos - self._press_pos).manhattanLength() > DRAG_CANCEL_PX:
+            # Slipped off the button: cancel rather than misfire a session.
+            self._cancelled = True
             self._hold_timer.stop()
             self._interpreter.cancel()
-            self.setCursor(Qt.CursorShape.SizeAllCursor)
             motion.retarget(self._scale_anim, self._scale, 1.0, DUR_RELEASE)
-        if self._dragging and self._draggable and self._drag_offset is not None:
-            # Locked 1:1 to the pointer; easing during drag feels detached.
-            self.window().move(pos - self._drag_offset)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # Qt override
         self._hold_timer.stop()
-        was_drag = self._dragging
-        if not self._dragging:
+        if not self._cancelled:
             self._interpreter.release()
         self._press_pos = None
-        self._dragging = False
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._cancelled = False
         motion.retarget(self._scale_anim, self._scale, 1.0, DUR_RELEASE)
-        if was_drag and self._draggable:
-            window = self.window()
-            if isinstance(window, Panel):
-                window.settle_on_screen()
 
-
-class _Pill(_MicControl):
-    """Collapsed state: the whole widget is the mic. Double-click expands.
-
-    A single click commits only after the double-click window closes, so
-    expanding the panel never toggles a session by accident. A state dot
-    at the top edge mirrors the HUD's colors; the tooltip carries the
-    live status text.
-    """
-
-    def __init__(self, controller: Any, on_expand: Any) -> None:
-        self._click_timer = QTimer()
-        self._click_timer.setSingleShot(True)
-        self._click_timer.setInterval(QGuiApplication.styleHints().mouseDoubleClickInterval())
-        super().__init__(controller, draggable=True, on_click=self._click_timer.start)
-        self._click_timer.setParent(self)
-        self._click_timer.timeout.connect(controller.panel_click)
-        self._on_expand = on_expand
-        self._dot: str | None = None
-        self.setFixedSize(_PILL, _PILL)
-        self.setToolTip("Click: start/stop. Hold: push to talk. Double-click: open.")
-
-    def set_dot(self, token: str | None) -> None:
-        self._dot = token
-        self.update()
-
-    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # Qt override
-        self._click_timer.stop()
-        self._interpreter.cancel()
-        self._on_expand()
+    # ---- painting ----
 
     def paintEvent(self, event: QPaintEvent) -> None:  # Qt override
         painter = QPainter(self)
-        self._paint_setup(painter)
-        level = self._level if self.recording else None
-        draw_mark(painter, _PILL, recording=self.recording, level=level)
-        pulse = self._pulse_pen()
-        if pulse is not None:
-            painter.setPen(pulse)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            radius = _PILL * 0.30
-            painter.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), radius, radius)
-        if self._dot is not None:
-            painter.setPen(QPen(QColor(TOKENS["cream_50"]), 1.5))
-            painter.setBrush(QColor(TOKENS[self._dot]))
-            painter.drawEllipse(self.width() - 13, 1, 11, 11)
-        painter.end()
-
-
-class _MicButton(_MicControl):
-    """Expanded state: a round mic button inside the card."""
-
-    def __init__(self, controller: Any) -> None:
-        super().__init__(controller, draggable=False)
-        self.setFixedSize(_PILL, _PILL)
-        self._bg = QColor(TOKENS["blue_400"])
-        self._bg_anim = motion.make_anim(self, 150, self._on_bg)
-
-    def _target_bg(self) -> QColor:
-        if self.recording:
-            return QColor(TOKENS["blue_500"])
-        if self.underMouse():
-            return QColor(TOKENS["blue_300"])
-        return QColor(TOKENS["blue_400"])
-
-    def _retint(self) -> None:
-        motion.retarget(self._bg_anim, QColor(self._bg), self._target_bg(), 150)
-
-    def _on_bg(self, value: object) -> None:
-        if isinstance(value, QColor):
-            self._bg = value
-            self.update()
-
-    def set_recording(self, recording: bool) -> None:
-        super().set_recording(recording)
-        self._retint()
-
-    def enterEvent(self, event: object) -> None:  # Qt override
-        self._retint()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event: object) -> None:  # Qt override
-        self._retint()
-        super().leaveEvent(event)
-
-    def paintEvent(self, event: QPaintEvent) -> None:  # Qt override
-        painter = QPainter(self)
-        self._paint_setup(painter)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if self._scale != 1.0:
+            center = self.rect().center()
+            painter.translate(center)
+            painter.scale(self._scale, self._scale)
+            painter.translate(-center)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(self._bg)
         painter.drawEllipse(self.rect().adjusted(1, 1, -1, -1))
-        from darkevox.ui.icons import _draw_mic_glyph
-
         level = self._level if self.recording else None
         _draw_mic_glyph(painter, self.width(), level=level)
-        pulse = self._pulse_pen()
-        if pulse is not None:
-            painter.setPen(pulse)
+        if self.recording and self._pulse_v > 0.01:
+            color = QColor(TOKENS["blue_300"])
+            color.setAlphaF(0.25 + 0.55 * self._pulse_v)
+            painter.setPen(QPen(color, 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(self.rect().adjusted(1, 1, -1, -1))
         painter.end()
@@ -361,6 +262,7 @@ class _DragHeader(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # Qt override
         if self._offset is not None:
+            # Locked 1:1 to the pointer; easing during drag feels detached.
             self.window().move(event.globalPosition().toPoint() - self._offset)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # Qt override
@@ -407,25 +309,23 @@ class Panel(QWidget):
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(SHADOW_MARGIN, SHADOW_MARGIN, SHADOW_MARGIN, SHADOW_MARGIN)
-        self._stack = QStackedWidget()
-        outer.addWidget(self._stack)
-        self._pill = _Pill(controller, on_expand=self.show_expanded)
         self._card = self._build_card()
-        self._stack.addWidget(self._wrap_pill())
-        self._stack.addWidget(self._card)
+        outer.addWidget(self._card)
 
-        # With every container genuinely transparent, this one shadow
-        # silhouettes the actual card/pill shape, not a square.
+        # With every container genuinely transparent, the one shadow
+        # silhouettes the card shape, never a square.
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(SHADOW_BLUR)
         shadow.setOffset(0, SHADOW_DY)
         shadow.setColor(QColor(*SHADOW_RGBA))
-        self._stack.setGraphicsEffect(shadow)
+        self._card.setGraphicsEffect(shadow)
 
+        # Open/close ride windowOpacity, the HUD's proven pattern.
+        self._fade = QPropertyAnimation(self, b"windowOpacity", self)
+        self._fade.setEasingCurve(motion.EASE_OUT_SOFT)
+        self._fade.finished.connect(self._after_fade)
         self._geo_anim = QPropertyAnimation(self, b"geometry", self)
         self._geo_anim.setEasingCurve(motion.EASE_OUT)
-        self._geo_anim.finished.connect(self._on_morph_done)
-        self._morph_target: str | None = None
 
         self._revert_timer = QTimer(self)
         self._revert_timer.setSingleShot(True)
@@ -440,26 +340,19 @@ class Panel(QWidget):
         self._poll.setInterval(500)
         self._poll.timeout.connect(self._poll_foreground)
 
-        QShortcut(QKeySequence(Qt.Key.Key_Escape), self, activated=self._on_escape)
+        QShortcut(QKeySequence(Qt.Key.Key_Escape), self, activated=self.close_to_tray)
         QShortcut(QKeySequence("Ctrl+Return"), self, activated=self._insert)
         QShortcut(QKeySequence("Ctrl+Shift+C"), self, activated=self._copy)
 
     # ---- construction ----
-
-    def _wrap_pill(self) -> QWidget:
-        holder = QWidget()
-        box = QVBoxLayout(holder)
-        box.setContentsMargins(0, 0, 0, 0)
-        box.addWidget(self._pill, alignment=Qt.AlignmentFlag.AlignCenter)
-        return holder
 
     def _build_card(self) -> QFrame:
         card = QFrame()
         card.setProperty("role", "card")
         card.setFixedWidth(_CARD_WIDTH)
         box = QVBoxLayout(card)
-        box.setContentsMargins(20, 16, 20, 20)
-        box.setSpacing(8)
+        box.setContentsMargins(20, 20, 20, 20)
+        box.setSpacing(4)
 
         header = _DragHeader()
         header_box = QHBoxLayout(header)
@@ -473,10 +366,11 @@ class Panel(QWidget):
         settings_btn.clicked.connect(self.settings_requested.emit)
         header_box.addWidget(settings_btn)
         collapse = AnimatedButton("hide", "quiet")
-        collapse.clicked.connect(self.show_pill)
+        collapse.clicked.connect(self.close_to_tray)
         header_box.addWidget(collapse)
         box.addWidget(header)
 
+        box.addSpacing(8)
         mic_row = QHBoxLayout()
         mic_row.setSpacing(12)
         self._mic = _MicButton(self._controller)
@@ -485,7 +379,6 @@ class Panel(QWidget):
         status_col.setSpacing(2)
         status_col.addStretch(1)
         self._status = QLabel("")
-        self._status.setProperty("role", "body")
         status_col.addWidget(self._status)
         self._status_sub = QLabel("")
         self._status_sub.setProperty("role", "caption")
@@ -494,7 +387,7 @@ class Panel(QWidget):
         mic_row.addLayout(status_col, stretch=1)
         box.addLayout(mic_row)
 
-        box.addSpacing(8)
+        box.addSpacing(12)
         heard_row = QHBoxLayout()
         heard_row.addWidget(_overline("Heard"))
         heard_row.addStretch(1)
@@ -508,7 +401,7 @@ class Panel(QWidget):
         self._raw.setFixedHeight(72)
         box.addWidget(self._raw)
 
-        box.addSpacing(8)
+        box.addSpacing(12)
         box.addWidget(_overline("Polished"))
         self._polished = QPlainTextEdit()
         self._polished.setProperty("variant", "hero")
@@ -518,10 +411,10 @@ class Panel(QWidget):
         self._polished.setFixedHeight(120)
         box.addWidget(self._polished)
 
-        box.addSpacing(8)
+        box.addSpacing(12)
         segment = _SegmentFrame()
         seg_box = QHBoxLayout(segment)
-        seg_box.setContentsMargins(3, 3, 3, 3)
+        seg_box.setContentsMargins(4, 4, 4, 4)
         seg_box.setSpacing(2)
         self._tone_buttons: dict[str, AnimatedButton] = {}
         for tone in _TONES:
@@ -534,12 +427,14 @@ class Panel(QWidget):
         self._tone_buttons[self._tone].setChecked(True)
         box.addWidget(segment)
 
+        box.addSpacing(12)
         action_row = QHBoxLayout()
         action_row.setSpacing(8)
         self._copy_btn = AnimatedButton("Copy", "secondary")
         self._copy_btn.clicked.connect(self._copy)
         action_row.addWidget(self._copy_btn)
         clear = AnimatedButton("Clear", "quiet")
+        clear.setMinimumHeight(36)  # rides in the action row; align with its peers
         clear.clicked.connect(self._clear)
         action_row.addWidget(clear)
         action_row.addStretch(1)
@@ -549,102 +444,55 @@ class Panel(QWidget):
         box.addLayout(action_row)
         return card
 
-    # ---- geometry and morphing ----
+    # ---- visibility ----
 
-    def _rect_for(self, expanded: bool) -> QRect:
-        if expanded:
-            hint = self._card.sizeHint()
-            size = (hint.width() + 2 * SHADOW_MARGIN, hint.height() + 2 * SHADOW_MARGIN)
+    def show_panel(self) -> None:
+        self.adjustSize()
+        self._clamp_instantly()
+        if not self.isVisible():
+            self.setWindowOpacity(0.0)
+            self.show()
+            self._start_fade(1.0, DUR_ENTER)
         else:
-            size = (_PILL + 2 * SHADOW_MARGIN, _PILL + 2 * SHADOW_MARGIN)
-        current = self.frameGeometry()
+            self._fade.stop()
+            self.setWindowOpacity(1.0)
+        self._poll.start()
+        self.visibility_changed.emit(True)
+
+    def close_to_tray(self) -> None:
+        if not self.isVisible():
+            return
+        self._start_fade(0.0, DUR_EXIT)
+        self.visibility_changed.emit(False)
+
+    def toggle_visibility(self) -> None:
+        if self.isVisible() and float(self._fade.endValue() or 1.0) != 0.0:
+            self.close_to_tray()
+        else:
+            self.show_panel()
+
+    def _start_fade(self, end: float, ms: int) -> None:
+        self._fade.stop()
+        self._fade.setDuration(motion.duration(ms))
+        self._fade.setStartValue(self.windowOpacity())
+        self._fade.setEndValue(end)
+        self._fade.start()
+
+    def _after_fade(self) -> None:
+        if float(self._fade.endValue()) == 0.0:
+            self.hide()
+            self.setWindowOpacity(1.0)
+
+    def _clamp_instantly(self) -> None:
         screen = QApplication.primaryScreen()
-        area = screen.availableGeometry() if screen is not None else QRect(0, 0, 1920, 1080)
-        # Pin the corner nearest the screen edges so the card emerges from
-        # where the pill sits instead of jumping across it.
-        x = current.x()
-        y = current.y()
-        if current.center().x() > area.center().x():
-            x = current.right() - size[0]
-        if current.center().y() > area.center().y():
-            y = current.bottom() - size[1]
-        rect = QRect(x, y, size[0], size[1])
+        if screen is None:
+            return
+        area = screen.availableGeometry()
+        rect = self.frameGeometry()
         margin = SHADOW_MARGIN
-        rect.moveLeft(
-            max(area.left() - margin, min(rect.left(), area.right() - rect.width() + margin))
-        )
-        rect.moveTop(
-            max(area.top() - margin, min(rect.top(), area.bottom() - rect.height() + margin))
-        )
-        return rect
-
-    def _free_size(self) -> None:
-        self.setMinimumSize(0, 0)
-        self.setMaximumSize(16_777_215, 16_777_215)
-
-    def show_expanded(self) -> None:
-        was_visible = self.isVisible()
-        collapsed = self.collapsed()
-        self._free_size()
-        self._stack.setCurrentIndex(1)
-        target = self._rect_for(expanded=True)
-        if was_visible and collapsed and motion.enabled():
-            self._morph_target = "card"
-            self._fade_card(0.0, 1.0)
-            self._geo_anim.stop()
-            self._geo_anim.setDuration(motion.duration(DUR_PANEL_OPEN))
-            self._geo_anim.setStartValue(self.geometry())
-            self._geo_anim.setEndValue(target)
-            self._geo_anim.start()
-        else:
-            self.setGeometry(target)
-        self.show()
-        self._poll.start()
-        self.visibility_changed.emit(True)
-
-    def show_pill(self) -> None:
-        was_visible = self.isVisible()
-        expanded = not self.collapsed()
-        target = self._rect_for(expanded=False)
-        if was_visible and expanded and motion.enabled():
-            self._morph_target = "pill"
-            self._fade_card(1.0, 0.0)
-            self._free_size()
-            self._geo_anim.stop()
-            self._geo_anim.setDuration(motion.duration(DUR_PANEL_CLOSE))
-            self._geo_anim.setStartValue(self.geometry())
-            self._geo_anim.setEndValue(target)
-            self._geo_anim.start()
-        else:
-            self._stack.setCurrentIndex(0)
-            self.setFixedSize(target.size())
-            self.setGeometry(target)
-        self.show()
-        self._poll.start()
-        self.visibility_changed.emit(True)
-
-    def _on_morph_done(self) -> None:
-        if self._morph_target == "pill":
-            self._stack.setCurrentIndex(0)
-            self.setFixedSize(self._rect_for(expanded=False).size())
-            self._clear_card_fade()
-        elif self._morph_target == "card":
-            self._clear_card_fade()
-        self._morph_target = None
-
-    def _fade_card(self, start: float, end: float) -> None:
-        effect = QGraphicsOpacityEffect(self._card)
-        effect.setOpacity(start)
-        self._card.setGraphicsEffect(effect)
-        anim = QPropertyAnimation(effect, b"opacity", effect)
-        anim.setDuration(motion.duration(150 if end > start else 80))
-        anim.setEasingCurve(motion.EASE_OUT_SOFT)
-        anim.setStartValue(start)
-        anim.setEndValue(end)
-        anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
-
-    def _clear_card_fade(self) -> None:
-        self._card.setGraphicsEffect(None)
+        x = max(area.left() - margin, min(rect.x(), area.right() - rect.width() + margin))
+        y = max(area.top() - margin, min(rect.y(), area.bottom() - rect.height() + margin))
+        self.move(x, y)
 
     def settle_on_screen(self) -> None:
         """After a drag release, glide back if the panel hangs off-screen."""
@@ -662,27 +510,11 @@ class Panel(QWidget):
         if not motion.enabled():
             self.setGeometry(target)
             return
-        self._morph_target = None
         self._geo_anim.stop()
         self._geo_anim.setDuration(motion.duration(DUR_SETTLE))
         self._geo_anim.setStartValue(self.geometry())
         self._geo_anim.setEndValue(target)
         self._geo_anim.start()
-
-    def collapsed(self) -> bool:
-        return self._stack.currentIndex() == 0 or self._morph_target == "pill"
-
-    def toggle_visibility(self) -> None:
-        if self.isVisible():
-            self.close_to_tray()
-        elif self.collapsed():
-            self.show_pill()
-        else:
-            self.show_expanded()
-
-    def close_to_tray(self) -> None:
-        self.hide()
-        self.visibility_changed.emit(False)
 
     def hideEvent(self, event: object) -> None:  # Qt override
         self._poll.stop()
@@ -694,14 +526,10 @@ class Panel(QWidget):
         menu.addAction("Hide DarkeVox (tray keeps running)", self.close_to_tray)
         menu.exec(event.globalPos())
 
-    def _on_escape(self) -> None:
-        if not self.collapsed():
-            self.show_pill()
-
     def _poll_foreground(self) -> None:
         self._tracker.poll({int(self.winId())})
 
-    # ---- status machine ----
+    # ---- status ----
 
     def set_hotkey_hint(self, combo: str) -> None:
         self._hotkey_hint = combo
@@ -719,48 +547,40 @@ class Panel(QWidget):
         self._status.setText(title)
         self._status_sub.setText(sub)
         self._status_sub.setVisible(bool(sub))
-        error = state == "error"
-        self._status.setProperty("role", "error" if error else "body")
+        error = state == status.ERROR
+        self._status.setProperty("role", "error" if error else "")
         self._status.style().unpolish(self._status)
         self._status.style().polish(self._status)
-        self._pill.set_dot(_STATE_DOTS.get(state))
-        tooltip = title if not sub else f"{title} — {sub}"
-        self._pill.setToolTip(tooltip)
         if revert_ms is not None:
             self._revert_timer.start(revert_ms)
 
     def _show_ready(self) -> None:
-        words = len(self._raw.toPlainText().split())
-        if words:
-            self._set_status("ready", f"Ready — {words} words in the draft")
-        elif self._hotkey_hint:
-            self._set_status("ready", "Ready", f"hold {self._hotkey_hint} or click the mic")
+        draft_words = len(self._raw.toPlainText().split())
+        if draft_words:
+            self._set_status(status.READY, status.ready(draft_words))
         else:
-            self._set_status("ready", "Ready", "click the mic, or hold it to talk")
+            self._set_status(status.READY, status.ready(), status.ready_hint(self._hotkey_hint))
 
     def _tick_listening(self) -> None:
         self._listen_seconds += 1
-        minutes, seconds = divmod(self._listen_seconds, 60)
-        self._set_status("listening", f"Listening — {minutes}:{seconds:02d}")
+        self._set_status(status.LISTENING, status.listening(self._listen_seconds))
 
     # ---- controller-facing slots (wired in app.py) ----
 
     def set_recording(self, recording: bool) -> None:
         self._live = recording
-        self._pill.set_recording(recording)
         self._mic.set_recording(recording)
         self._raw.setReadOnly(recording)
         if recording:
             self._draft.begin_session(self._raw.toPlainText())
             self._listen_seconds = 0
             self._listen_timer.start()
-            self._set_status("listening", "Listening — 0:00")
+            self._set_status(status.LISTENING, status.listening(0))
         else:
             self._listen_timer.stop()
-            self._set_status("transcribing", "Transcribing…")
+            self._set_status(status.TRANSCRIBING, status.transcribing())
 
     def set_level(self, level: float) -> None:
-        self._pill.set_level(level)
         self._mic.set_level(level)
 
     def set_partial(self, text: str) -> None:
@@ -778,7 +598,7 @@ class Panel(QWidget):
             if committed:
                 self._show_ready()
             else:
-                self._set_status("ready", "No speech heard", "try again, closer to the mic")
+                self._set_status(status.NO_SPEECH, status.no_speech(), status.no_speech_hint())
             return
         self._settle(self._raw)
         self._polish_as(self._tone)
@@ -789,21 +609,22 @@ class Panel(QWidget):
         self._settle(self._polished)
         if fell_back:
             note = self._pending_note or "check the polish backend, then click a tone to retry"
-            self._set_status("fallback", "Polish unavailable — showing raw", note)
+            self._set_status(status.FALLBACK, status.fallback(), note)
         else:
-            words = len(text.split())
-            label = "as spoken" if tone == "verbatim" else tone
-            self._set_status("ready", f"Polished — {label}", f"{words} words · Insert or Copy")
+            count = len(text.split())
+            self._set_status(
+                status.READY, status.polished(tone), status.polished_hint(count)
+            )
         self._pending_note = ""
 
     def on_notice(self, note: str) -> None:
         self._pending_note = note
 
     def on_error(self, message: str) -> None:
-        self._set_status("error", message)
+        self._set_status(status.ERROR, message)
 
     def on_inserted(self, words: int) -> None:
-        self._set_status("inserted", f"Inserted — {words} words", revert_ms=2000)
+        self._set_status(status.INSERTED, status.inserted(words), revert_ms=2000)
 
     def _settle(self, field: QPlainTextEdit) -> None:
         """New text lands with a short opacity settle instead of a teleport."""
@@ -829,14 +650,17 @@ class Panel(QWidget):
         self._draft.sync(self._raw.toPlainText())
         raw = self._raw.toPlainText().strip()
         if not raw:
-            self._set_status("ready", "Nothing to polish yet", revert_ms=2000)
+            self._set_status(status.READY, status.nothing_yet("polish"), revert_ms=2000)
             return
         if tone == "verbatim":
             self._polished.setPlainText(raw)
             self._settle(self._polished)
-            self._set_status("ready", "As spoken", f"{len(raw.split())} words · Insert or Copy")
+            count = len(raw.split())
+            self._set_status(
+                status.READY, status.polished("verbatim"), status.polished_hint(count)
+            )
             return
-        self._set_status("polishing", f"Polishing — {tone}…")
+        self._set_status(status.POLISHING, status.polishing(tone))
         if self.isVisible() and motion.enabled():
             effect = QGraphicsOpacityEffect(self._polished)
             effect.setOpacity(0.55)
@@ -849,21 +673,20 @@ class Panel(QWidget):
     def _copy(self) -> None:
         text = self._best_text()
         if not text:
-            self._set_status("ready", "Nothing to copy yet", revert_ms=2000)
+            self._set_status(status.READY, status.nothing_yet("copy"), revert_ms=2000)
             return
         QGuiApplication.clipboard().setText(text)
-        words = len(text.split())
-        self._set_status("ready", f"Copied — {words} words", revert_ms=2000)
+        self._set_status(status.READY, status.copied(len(text.split())), revert_ms=2000)
         self._copy_btn.setText("Copied")
         QTimer.singleShot(1200, lambda: self._copy_btn.setText("Copy"))
 
     def _insert(self) -> None:
         text = self._best_text()
         if not text:
-            self._set_status("ready", "Nothing to insert yet", revert_ms=2000)
+            self._set_status(status.READY, status.nothing_yet("insert"), revert_ms=2000)
             return
         self._controller.request_inject(text)
-        self._set_status("polishing", "Inserting…")
+        self._set_status(status.POLISHING, status.inserting())
 
     def _undo_take(self) -> None:
         restored = self._draft.undo()
