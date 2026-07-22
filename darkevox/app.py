@@ -212,14 +212,16 @@ def main() -> int:
     if not QSystemTrayIcon.isSystemTrayAvailable():
         log.warning("system tray unavailable; app has no visible surface")
 
+    from darkevox.ui import status
+
     tray = Tray()
     tray.quit_requested.connect(app.quit)
-    tray.set_status("idle")
+    tray.set_status(status.ready(), status.READY)
     tray.show()
 
     model_ready, downloaded_now = _ensure_model(cfg)
     if not model_ready:
-        tray.notify("DarkeVox", "Speech model missing. Relaunch to download it.")
+        tray.notify("DarkeVox", status.MODEL_MISSING)
 
     state = AppState(tone=cfg.polish.default_tone, grounding=cfg.polish.grounding_enabled)
     engine = SttEngine(
@@ -247,8 +249,6 @@ def main() -> int:
     hud = Hud()
 
     controller.set_stt_ready(model_ready)
-
-    from darkevox.ui import status
 
     def on_state(state_name: str, label: str) -> None:
         hud.show_state(state_name, label, auto_hide_ms=status.AUTO_HIDE.get(state_name))

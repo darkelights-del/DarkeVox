@@ -15,6 +15,7 @@ READY = "ready"
 LISTENING = "listening"
 TRANSCRIBING = "transcribing"
 POLISHING = "polishing"
+INSERTING = "inserting"
 INSERTED = "inserted"
 NO_SPEECH = "no_speech"
 FALLBACK = "fallback"
@@ -27,6 +28,7 @@ DOTS: dict[str, str] = {
     LISTENING: "blue_300",
     TRANSCRIBING: "blue_400",
     POLISHING: "honey_300",
+    INSERTING: "honey_300",
     INSERTED: "sage_300",
     NO_SPEECH: "ink_400",  # a non-event, not a success: neutral gray
     FALLBACK: "honey_300",
@@ -109,5 +111,17 @@ def fallback() -> str:
     return "Polish unavailable — showing raw"
 
 
+def fallback_hint() -> str:
+    return "check the polish backend, then click a tone to retry"
+
+
 def nothing_yet(verb: str) -> str:
     return f"Nothing to {verb} yet"
+
+
+# Action labels that swap (the button must say it the same way everywhere).
+COPY = "Copy"
+COPIED = "Copied"
+
+# One event, one wording, shared by the controller guard and the tray balloon.
+MODEL_MISSING = "Speech model missing. Relaunch DarkeVox to download it."

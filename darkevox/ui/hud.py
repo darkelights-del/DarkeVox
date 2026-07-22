@@ -1,4 +1,4 @@
-"""The status pill: frameless, always on top, never takes focus or clicks.
+"""The status card: frameless, always on top, never takes focus or clicks.
 
 Spec lives in darkevox-ui-style (Components > HUD). States: listening
 (pulsing blue), transcribing (steady blue), polishing (honey), done
@@ -21,7 +21,9 @@ from darkevox.ui.status import DOTS, PULSING
 from darkevox.ui.theme import (
     DUR_ENTER,
     DUR_EXIT,
+    DUR_GLIDE,
     DUR_SWELL,
+    DUR_TINT,
     FONT_BODY_PX,
     FONT_CAPTION_PX,
     PULSE_MS,
@@ -60,13 +62,13 @@ class Hud(QWidget):
         shadow.setColor(QColor(*SHADOW_RGBA))
         self.setGraphicsEffect(shadow)
 
-        self._state = "listening"
+        self._state = status.LISTENING
         self._label = ""
         self._grounded = False
         self._dot_opacity = 1.0
         self._dot_swell = 1.0
         self._level = 0.0
-        self._level_anim = motion.make_anim(self, 150, self._on_level)
+        self._level_anim = motion.make_anim(self, DUR_TINT, self._on_level)
         self._font = QFont()
         self._font.setPixelSize(FONT_BODY_PX)
         self._badge_font = QFont()
@@ -90,7 +92,7 @@ class Hud(QWidget):
         # Label changes while visible re-center with a short glide instead
         # of a one-frame jump.
         self._geo = QPropertyAnimation(self, b"geometry", self)
-        self._geo.setDuration(motion.duration(120))
+        self._geo.setDuration(motion.duration(DUR_GLIDE))
         self._geo.setEasingCurve(motion.EASE_OUT)
 
         self._swell = QVariantAnimation(self)
@@ -263,7 +265,7 @@ class Hud(QWidget):
         )
         painter.restore()
 
-        dot_color = QColor(TOKENS[DOTS.get(self._state, "blue_300")])
+        dot_color = QColor(TOKENS[DOTS.get(self._state, DOTS[status.LISTENING])])
         dot_color.setAlphaF(self._dot_opacity)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(dot_color)
@@ -273,12 +275,16 @@ class Hud(QWidget):
         painter.drawEllipse(int(dot_x), int(dot_y), int(dot), int(dot))
 
         painter.setFont(self._font)
-        painter.setPen(QColor(TOKENS["ink_900"]))
+        ink = "clay_600" if self._state == status.ERROR else "ink_900"
+        painter.setPen(QColor(TOKENS[ink]))
         text_x = mark_x + _MARK + _GAP + _DOT + _GAP
+        text_w = pill.right() - text_x - _PAD
+        if self._grounded:
+            text_w -= _GAP + self._badge_width()
         painter.drawText(
             text_x,
             pill.top(),
-            pill.width(),
+            text_w,
             pill.height(),
             Qt.AlignmentFlag.AlignVCenter,
             self._elided_label(),

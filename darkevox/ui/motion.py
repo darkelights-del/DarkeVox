@@ -14,7 +14,6 @@ from PySide6.QtCore import QEasingCurve, QVariantAnimation
 
 EASE_OUT = QEasingCurve.Type.OutQuart
 EASE_OUT_SOFT = QEasingCurve.Type.OutQuad
-EASE_IN_SOFT = QEasingCurve.Type.InQuad
 
 _reduce = False
 

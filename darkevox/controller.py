@@ -189,7 +189,7 @@ class DictationController(QObject):
         if not self._stt_ready:
             # Speaking into a missing model would transcribe nothing and lose
             # the words; refuse up front with the directive message.
-            self.error.emit("Speech model missing. Relaunch DarkeVox to download it.")
+            self.error.emit(status.MODEL_MISSING)
             return
         try:
             capture = self._capture_factory()

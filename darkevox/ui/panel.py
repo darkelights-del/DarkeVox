@@ -61,6 +61,8 @@ from darkevox.ui.theme import (
     DUR_PRESS,
     DUR_RELEASE,
     DUR_SETTLE,
+    DUR_TEXT_SETTLE,
+    DUR_TINT,
     PULSE_MS,
     RADIUS_CONTROL,
     SHADOW_BLUR,
@@ -113,8 +115,8 @@ class _MicButton(QWidget):
         self._pulse_v = 0.0
         self._bg = QColor(TOKENS["blue_400"])
         self._scale_anim = motion.make_anim(self, DUR_PRESS, self._on_scale)
-        self._level_anim = motion.make_anim(self, 150, self._on_level)
-        self._bg_anim = motion.make_anim(self, 150, self._on_bg)
+        self._level_anim = motion.make_anim(self, DUR_TINT, self._on_level)
+        self._bg_anim = motion.make_anim(self, DUR_TINT, self._on_bg)
         self._pulse = QVariantAnimation(self)
         self._pulse.setDuration(PULSE_MS)
         self._pulse.setStartValue(0.0)
@@ -156,7 +158,7 @@ class _MicButton(QWidget):
         return QColor(TOKENS["blue_400"])
 
     def _retint(self) -> None:
-        motion.retarget(self._bg_anim, QColor(self._bg), self._target_bg(), 150)
+        motion.retarget(self._bg_anim, QColor(self._bg), self._target_bg(), DUR_TINT)
 
     def _on_scale(self, value: object) -> None:
         self._scale = float(value)  # type: ignore[arg-type]
@@ -387,7 +389,7 @@ class Panel(QWidget):
         mic_row.addLayout(status_col, stretch=1)
         box.addLayout(mic_row)
 
-        box.addSpacing(12)
+        box.addSpacing(8)
         heard_row = QHBoxLayout()
         heard_row.addWidget(_overline("Heard"))
         heard_row.addStretch(1)
@@ -401,7 +403,7 @@ class Panel(QWidget):
         self._raw.setFixedHeight(72)
         box.addWidget(self._raw)
 
-        box.addSpacing(12)
+        box.addSpacing(8)
         box.addWidget(_overline("Polished"))
         self._polished = QPlainTextEdit()
         self._polished.setProperty("variant", "hero")
@@ -411,7 +413,7 @@ class Panel(QWidget):
         self._polished.setFixedHeight(120)
         box.addWidget(self._polished)
 
-        box.addSpacing(12)
+        box.addSpacing(8)
         segment = _SegmentFrame()
         seg_box = QHBoxLayout(segment)
         seg_box.setContentsMargins(4, 4, 4, 4)
@@ -427,10 +429,10 @@ class Panel(QWidget):
         self._tone_buttons[self._tone].setChecked(True)
         box.addWidget(segment)
 
-        box.addSpacing(12)
+        box.addSpacing(8)
         action_row = QHBoxLayout()
         action_row.setSpacing(8)
-        self._copy_btn = AnimatedButton("Copy", "secondary")
+        self._copy_btn = AnimatedButton(status.COPY, "secondary")
         self._copy_btn.clicked.connect(self._copy)
         action_row.addWidget(self._copy_btn)
         clear = AnimatedButton("Clear", "quiet")
@@ -608,7 +610,7 @@ class Panel(QWidget):
         self._polished.setPlainText(text)
         self._settle(self._polished)
         if fell_back:
-            note = self._pending_note or "check the polish backend, then click a tone to retry"
+            note = self._pending_note or status.fallback_hint()
             self._set_status(status.FALLBACK, status.fallback(), note)
         else:
             count = len(text.split())
@@ -634,7 +636,7 @@ class Panel(QWidget):
         effect.setOpacity(0.55)
         field.setGraphicsEffect(effect)
         anim = QPropertyAnimation(effect, b"opacity", effect)
-        anim.setDuration(motion.duration(180))
+        anim.setDuration(motion.duration(DUR_TEXT_SETTLE))
         anim.setEasingCurve(motion.EASE_OUT_SOFT)
         anim.setStartValue(0.55)
         anim.setEndValue(1.0)
@@ -677,8 +679,8 @@ class Panel(QWidget):
             return
         QGuiApplication.clipboard().setText(text)
         self._set_status(status.READY, status.copied(len(text.split())), revert_ms=2000)
-        self._copy_btn.setText("Copied")
-        QTimer.singleShot(1200, lambda: self._copy_btn.setText("Copy"))
+        self._copy_btn.setText(status.COPIED)
+        QTimer.singleShot(1200, lambda: self._copy_btn.setText(status.COPY))
 
     def _insert(self) -> None:
         text = self._best_text()
@@ -686,7 +688,7 @@ class Panel(QWidget):
             self._set_status(status.READY, status.nothing_yet("insert"), revert_ms=2000)
             return
         self._controller.request_inject(text)
-        self._set_status(status.POLISHING, status.inserting())
+        self._set_status(status.INSERTING, status.inserting())
 
     def _undo_take(self) -> None:
         restored = self._draft.undo()

@@ -65,7 +65,9 @@ DUR_HOVER_OUT = 150
 DUR_ENTER = 90
 DUR_EXIT = 150
 DUR_SETTLE = 200
-DUR_TEXT_DIP = 110
+DUR_TEXT_SETTLE = 180
+DUR_TINT = 150
+DUR_GLIDE = 120
 DUR_SWELL = 280
 PULSE_MS = 1200
 
@@ -85,6 +87,8 @@ QMenu {
 }
 QMenu::item { background: transparent; padding: 8px 24px 8px 12px; border-radius: ${r_sm}px; }
 QMenu::item:selected { background: $blue_100; }
+/* deliberate: the tray status row is a disabled QAction that must stay
+   readable; ink_400 is reserved for truly inert text */
 QMenu::item:disabled { color: $ink_600; }
 QMenu::separator { height: 1px; background: $cream_200; margin: 4px 8px; }
 QPushButton {

@@ -55,6 +55,7 @@ class AnimatedButton(QPushButton):
         self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self._bg = QColor(_STYLES[self._variant][0])
         self._scale = 1.0
+        self._keyboard_focus = False
         self._bg_anim = motion.make_anim(self, DUR_HOVER, self._on_bg)
         self._scale_anim = motion.make_anim(self, DUR_PRESS, self._on_scale)
         if variant == "primary":
@@ -129,6 +130,21 @@ class AnimatedButton(QPushButton):
         self._bg = self._target_bg()
         self.update()
 
+    def focusInEvent(self, event) -> None:  # Qt override
+        # Ring only keyboard-driven focus; Qt hands initial window focus to
+        # the first tab-focusable widget, which must not read as selected.
+        reason = event.reason()
+        self._keyboard_focus = reason in (
+            Qt.FocusReason.TabFocusReason,
+            Qt.FocusReason.BacktabFocusReason,
+            Qt.FocusReason.ShortcutFocusReason,
+        )
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event) -> None:  # Qt override
+        self._keyboard_focus = False
+        super().focusOutEvent(event)
+
     # ---- painting ----
 
     def paintEvent(self, event: object) -> None:  # Qt override
@@ -142,7 +158,7 @@ class AnimatedButton(QPushButton):
             painter.translate(-center)
         *_, border = self._colors()
         radius = RADIUS_CONTROL if self._variant != "chip" else RADIUS_SM
-        if self.hasFocus():
+        if self.hasFocus() and self._keyboard_focus:
             focus = _T["ink_900"] if self._variant == "primary" else _T["blue_500"]
             painter.setPen(QPen(QColor(focus), 1))
         elif self._variant == "chip" and self.isChecked():
